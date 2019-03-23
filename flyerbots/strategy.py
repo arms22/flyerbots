@@ -371,7 +371,7 @@ class Strategy:
                         position['checked'] = True
 
                     # 内部管理のポジション数取得
-                    self.position_size, self.position_avg_price, _ = self.exchange.get_position()
+                    self.position_size, self.position_avg_price, self.openprofit, self.positions = self.exchange.get_position()
 
                     # 証拠金取得
                     f_collateral, collateral = async_result(f_collateral, collateral)

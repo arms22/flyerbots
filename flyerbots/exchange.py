@@ -23,7 +23,7 @@ class Exchange:
         self.lightning_collateral = None
         self.order_is_not_accepted = None
         self.ltp = 0
-        self.position_size = 0
+        self.last_position_size = 0
 
     def safe_api_call(self, func):
         @wraps(func)
@@ -291,15 +291,16 @@ class Exchange:
         avg = 0
         pnl = 0
         with self.om.lock:
-            if len(self.om.positions):
-                size = fsum(p['size'] for p in self.om.positions)
-                avg = fsum(p['price']*p['size'] for p in self.om.positions)/size
-                size = size if self.om.positions[0]['side'] == 'buy' else size*-1
-                pnl = (self.ltp * size) - (avg * size)
-        if self.position_size != size:
+            positions = list(self.om.positions)
+        if len(positions):
+            size = fsum(p['size'] for p in positions)
+            avg = fsum(p['price']*p['size'] for p in positions)/size
+            size = size if positions[0]['side'] == 'buy' else size*-1
+            pnl = (self.ltp * size) - (avg * size)
+        if self.last_position_size != size:
             self.logger.info("POSITION: qty {0:.8f} cost {1:.0f} pnl {2:.8f}".format(size, avg, pnl))
-            self.position_size = size
-        return size, avg, pnl
+            self.last_position_size = size
+        return size, avg, pnl, positions
 
     def restore_position(self, positions):
         with self.om.lock:
