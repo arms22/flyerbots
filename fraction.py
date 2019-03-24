@@ -2,6 +2,7 @@
 from flyerbots.strategy import Strategy
 from flyerbots.indicator import *
 from math import floor, ceil
+from datetime import datetime, time
 
 suspension_period = [
     (time(18, 55), time(19, 55)), # JST 03:55-04:55 Bitflyerメンテナンスタイム
@@ -38,7 +39,7 @@ class fraction:
             buy = flooring(C-25.5,51)
             sell = ceiling(C+25.5,51)
             lot = 0.01
-            for i in range(3):
+            for i in range(1):
                 bp = int(buy-i*51)
                 sp = int(sell+i*51)
                 strategy.order(str(bp), 'buy', qty=lot, limit=bp, minute_to_expire=1)
