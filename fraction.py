@@ -18,9 +18,12 @@ def stdev(src):
 class fraction:
 
     def __init__(self):
-        pass
+        self.api_limit = 0
 
     def loop(self, ticker, ohlcv, strategy, **other):
+
+        if self.api_limit:
+            self.api_limit -= 1
 
         # メンテナンス時刻
         t = datetime.utcnow().time()
@@ -37,7 +40,7 @@ class fraction:
             dist = ohlcv.distribution_delay[-5:]
             delay = sorted(dist)[int(len(dist)/2)]
 
-            if delay<3:
+            if delay<2:
                 # 51円値幅で指値バラマキ
                 mid = (ohlcv.close[-1]+ohlcv.high[-1]+ohlcv.low[-1])/3
                 spr = stdev(ohlcv.close)
@@ -45,8 +48,11 @@ class fraction:
                 rng = 51
                 buy = ((mid-spr/2)//rng)*rng
                 sell = ((mid+spr/2)//rng+1)*rng
-                strategy.order(f'{buy}', 'buy', qty=lot, limit=buy, minute_to_expire=1)
-                strategy.order(f'{sell}', 'sell', qty=lot, limit=sell, minute_to_expire=1)
+
+                if self.api_limit==0:
+                    strategy.order(f'{buy}', 'buy', qty=lot, limit=buy, minute_to_expire=1)
+                    strategy.order(f'{sell}', 'sell', qty=lot, limit=sell, minute_to_expire=1)
+                    self.api_limit = 6
 
                 # 利確・損切り
                 profit = rng
