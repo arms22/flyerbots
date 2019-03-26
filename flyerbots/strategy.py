@@ -313,7 +313,11 @@ class Strategy:
 
         def async_result(f_result, last):
             if f_result is not None and f_result.done():
-                return None, f_result.result()
+                try:
+                    return None, f_result.result()
+                except Exception as e:
+                    self.logger.warning(type(e).__name__ + ": {0}".format(e))
+                    f_result = None
             return f_result, last
 
         self.hft = self.settings.interval < 3
@@ -400,9 +404,11 @@ class Strategy:
                 # 価格データ取得
                 ticker = dotdict(self.ep.get_ticker())
                 ohlcv = executions = None
+
                 # インターバルが0の場合、約定履歴の到着を待つ
                 if self.settings.interval==0:
                     self.ep.wait_any(['executions'], timeout=0.5)
+
                 # OHLCVを作成しない場合、約定履歴を渡す
                 if self.settings.disable_create_ohlcv:
                     executions = self.ep.get_executions()
