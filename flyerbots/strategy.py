@@ -76,10 +76,16 @@ class Strategy:
         self.exchange.cancel(myid)
 
     def cancel_order_all(self, symbol = None):
-        """すべての注文をキャンセルする"""
+        """すべての注文をキャンセル"""
         self.exchange.cancel_order_all(symbol or self.settings.symbol)
 
     def close_position(self, symbol = None):
+        """ポジションクローズ"""
+        if self.exchange.order_is_not_accepted is not None:
+            if not self.hft:
+                self.logger.info("REJECT: {0} order is not accepted...".format(myid))
+            return
+        # 最小注文サイズ取得
         symbol = symbol or self.settings.symbol
         if symbol == 'FX_BTC_JPY':
             min_qty = 0.01
@@ -98,10 +104,21 @@ class Strategy:
             if buysize < min_qty:
                 buysize = fsum([buysize,min_qty])
                 sellsize = min_qty
+        # 注文作成
+        close_orders = []
         if sellsize:
-            self.exchange.create_order('L close', 'sell', sellsize, None, None, None, None, symbol)
+            close_orders.append(('__Lc__', 'sell', sellsize))
         if buysize:
-            self.exchange.create_order('S close', 'buy', buysize, None, None, None, None, symbol)
+            close_orders.append(('__Sc__', 'buy', buysize))
+        for order in close_orders:
+            myid, side, size = order
+            # 約定するまで次の注文は受け付けない
+            o = self.exchange.get_order(myid)
+            if o.status == 'open' or o.status == 'accepted':
+                delta = datetime.utcnow() - o.accepted_at
+                if delta < timedelta(seconds=60):
+                    continue
+            self.exchange.create_order(myid, side, size, None, None, None, None, symbol)
 
     def order(self, myid, side, qty, limit=None, stop=None, time_in_force = None, minute_to_expire = None, symbol = None, limit_mask = 0, seconds_to_keep_order = None):
         """注文"""
@@ -296,11 +313,7 @@ class Strategy:
 
         def async_result(f_result, last):
             if f_result is not None and f_result.done():
-                try:
-                    return None, f_result.result()
-                except Exception as e:
-                    self.logger.warning(e)
-                    f_result = None
+                return None, f_result.result()
             return f_result, last
 
         self.hft = self.settings.interval < 3

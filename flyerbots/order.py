@@ -122,19 +122,17 @@ class OrderManager:
     def cancel_order(self, myid):
         cancelable = ['open', 'accepted']
         with self.lock:
-            my_orders = [v for v in self.orders.values() if v['myid']==myid and v['status'] in cancelable]
+            my_orders = [v for v in self.orders.values() if (v['type'] != 'market') and (v['myid']==myid) and (v['status'] in cancelable)]
             for o in my_orders:
-                if o['type'] != 'market':
-                    o['status'] = 'cancel'
+                o['status'] = 'cancel'
         return my_orders
 
     def cancel_order_all(self):
         cancelable = ['open', 'accepted']
         with self.lock:
-            my_orders = [v for v in self.orders.values() if v['status'] in cancelable]
+            my_orders = [v for v in self.orders.values() if (v['type'] != 'market') and (v['status'] in cancelable)]
             for o in my_orders:
-                if o['type'] != 'market':
-                    o['status'] = 'cancel'
+                o['status'] = 'cancel'
         return my_orders
 
     def get_order(self, myid):

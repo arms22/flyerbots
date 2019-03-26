@@ -276,6 +276,9 @@ class Exchange:
                     msg = e.args[0]
                     if '{' in msg:
                         res = json.loads(msg[msg.find('{'):])
+                except ccxt.DDoSProtection as e:
+                    self.logger.warning(type(e).__name__ + ": {0}".format(e))
+                    self.order_is_not_accepted = datetime.utcnow()+timedelta(seconds=12)
                 except LightningError as e:
                     self.logger.warning(type(e).__name__ + ": {0}".format(e))
                     res = e.args[0]
