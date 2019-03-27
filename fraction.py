@@ -37,11 +37,10 @@ class fraction:
         if not coffee_break:
 
             # 遅延評価
-            dist = ohlcv.distribution_delay[-5:]
+            dist = ohlcv.distribution_delay[-11:]
             delay = sorted(dist)[int(len(dist)/2)]
 
             if delay<2:
-                # 51円値幅で指値バラマキ
                 mid = (ohlcv.close[-1]+ohlcv.high[-1]+ohlcv.low[-1])/3
                 spr = stdev(ohlcv.close)
                 lot = 0.01
@@ -49,10 +48,13 @@ class fraction:
                 buy = ((mid-spr/2)//rng)*rng
                 sell = ((mid+spr/2)//rng+1)*rng
 
-                if self.api_limit==0:
+                # 同じ価格に指値を入れない
+                buy_prices = set([p['price'] for p in strategy.positions if p['side']=='buy'])
+                sell_prices = set([p['price'] for p in strategy.positions if p['side']=='sell'])
+                if buy not in buy_prices:
                     strategy.order(f'{buy}', 'buy', qty=lot, limit=buy, minute_to_expire=1)
+                if sell not in sell_prices:
                     strategy.order(f'{sell}', 'sell', qty=lot, limit=sell, minute_to_expire=1)
-                    self.api_limit = 6
 
                 # 利確・損切り
                 profit = rng
