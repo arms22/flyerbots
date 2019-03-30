@@ -9,7 +9,7 @@ import json
 from .utils import dotdict, stop_watch
 from .order import OrderManager
 from .webapi2 import LightningAPI, LightningError
-from collections import deque
+from collections import OrderedDict, deque
 from math import fsum
 
 class Exchange:
@@ -120,7 +120,11 @@ class Exchange:
         return self.om.get_order(myid)
 
     def get_open_orders(self):
-        return self.om.get_open_orders()
+        orders = self.om.get_orders(status_filter = ['open', 'accepted'])
+        orders_by_myid = OrderedDict()
+        for o in orders.values():
+            orders_by_myid[o['myid']] = o
+        return orders_by_myid
 
     def create_order(self, myid, side, qty, limit, stop, time_in_force, minute_to_expire, symbol):
         """新規注文"""
