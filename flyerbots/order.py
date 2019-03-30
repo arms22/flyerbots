@@ -111,11 +111,6 @@ class OrderManager:
                     latest['status'] = o['status']
             if latest['filled'] < o['filled']:
                 latest['filled'] = o['filled']
-            # 約定サイズ取得
-            fill = latest['filled']-o['filled']
-            if fill>0:
-                # ポジション追加
-                self.add_position({'side':o['side'], 'size':fill, 'price':latest['average_price']})
             for k in ['id', 'datetime', 'status', 'average_price', 'filled', 'remaining' ,'fee']:
                 o[k] = latest[k]
 
