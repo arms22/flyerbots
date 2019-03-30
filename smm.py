@@ -24,6 +24,13 @@ def stdev(src):
     dev = sqrt(var)
     return dev
 
+def zscore(source):
+    average = sum(source)/len(source)
+    average_sq = sum(p**2 for p in source) / len(source)
+    variance = average_sq - (average * average)
+    std = sqrt(variance)
+    return (source[-1]-average)/std if std else 0
+
 class simple_market_maker:
 
     def __init__(self):
@@ -37,13 +44,15 @@ class simple_market_maker:
         delay = sorted(dist)[int(len(dist)/2)]
 
         # 指値幅計算
-        spr = max(stdev(ohlcv.close[-12*15:]), 400) * (1 + delay/5.0)
+        spr = max(stdev(ohlcv.close), 100)
         pairs = [(0.04, spr*1.0, 3), (0.03, spr*0.5, 2), (0.02, spr*0.25, 1), (0.01, spr*0.125, 0)]
         maxsize = sum(p[0] for p in pairs)
         buymax = sellmax = strategy.position_size
+        # mid = ohlcv.close[-1]
         mid = (ohlcv.high[-1]+ohlcv.low[-1]+ohlcv.close[-1])/3
         # mid = ohlcv.average[-1]
-        ofs = ohlcv.trades[-1]*0.2
+        z = zscore(ohlcv.volume_imbalance)
+        ofs = z*9
 
         if delay>2.0:
             if strategy.position_size>=0.01:
@@ -120,7 +129,7 @@ if __name__ == "__main__":
     strategy = Strategy(simple_market_maker().loop, 5)
     strategy.settings.apiKey = settings.apiKey
     strategy.settings.secret = settings.secret
-    strategy.settings.max_ohlcv_size = 12*15
+    strategy.settings.max_ohlcv_size = 12*45
     strategy.settings.disable_rich_ohlcv = True
     strategy.risk.max_position_size = 0.1
     strategy.start()
