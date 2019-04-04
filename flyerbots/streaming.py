@@ -22,7 +22,7 @@ class Streaming:
         self.connected = False
         # self.on_message = stop_watch(self.on_message)
 
-    def on_message(self, ws, message):
+    def on_message(self, message):
         message = json.loads(message)
         if message["method"] == "channelMessage":
             channel = message["params"]["channel"]
@@ -30,14 +30,14 @@ class Streaming:
             for ep in self.endpoints:
                 ep.put(channel, message)
 
-    def on_error(self, ws, error):
+    def on_error(self, error):
         self.logger.info(error)
 
-    def on_close(self, ws):
+    def on_close(self):
         self.logger.info('disconnected')
         self.connected = False
 
-    def on_open(self, ws):
+    def on_open(self):
         self.logger.info('connected')
         self.connected = True
         if len(self.subscribed_channels):
@@ -140,6 +140,7 @@ class Streaming:
         def wait_any(self, topics = None, timeout = None):
             topics = topics or self.topics
             channels = ['lightning_' + t + '_' + self.product_id for t in topics]
+            result = True
             with self.cond:
                 while True:
                     available = 0
@@ -149,7 +150,10 @@ class Streaming:
                     if available or self.closed:
                         break
                     else:
-                        self.cond.wait(timeout)
+                        if self.cond.wait(timeout) == False:
+                            result = False
+                            break
+            return result
 
         def shutdown(self):
             with self.cond:
@@ -165,7 +169,8 @@ class Streaming:
                             if len(self.data[channel]) or self.closed:
                                 break
                             else:
-                                self.cond.wait(timeout)
+                                if self.cond.wait(timeout) == False:
+                                    break
                     data = list(self.data[channel])
                     last = self.last[channel]
                     self.data[channel].clear()
