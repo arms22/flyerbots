@@ -208,7 +208,7 @@ class Exchange:
         collateral.keep_rate = 0
         if self.private_api_enabled:
             collateral = dotdict(self.exchange.private_get_getcollateral())
-            self.logger.info("COLLATERAL: {collateral} open {open_position_pnl} require {require_collateral:.2f} rate {keep_rate}".format(**collateral))
+            # self.logger.info("COLLATERAL: {collateral} open {open_position_pnl} require {require_collateral:.2f} rate {keep_rate}".format(**collateral))
         return collateral
 
     def fetch_collateral(self, async = True):
@@ -220,13 +220,9 @@ class Exchange:
     def __restapi_fetch_balance(self):
         balance = dotdict()
         if self.private_api_enabled:
-            res = self.exchange.fetch_balance()
-            for k, v in res.items():
-                if k == 'info':
-                    continue
-                balance[k] = dotdict(v)
-            self.logger.info("JPY: free {free:.8f} used {used:.8f} total {total:.8f}".format(**balance.JPY))
-            self.logger.info("BTC: free {free:.8f} used {used:.8f} total {total:.8f}".format(**balance.BTC))
+            res = self.exchange.private_get_getbalance()
+            for v in res:
+                balance[v['currency_code']] = dotdict(v)
         return balance
 
     def fetch_balance(self, async = True):
@@ -305,7 +301,7 @@ class Exchange:
             size = size if positions[0]['side'] == 'buy' else size*-1
             pnl = (self.ltp * size) - (avg * size)
         if self.last_position_size != size:
-            self.logger.info("POSITION: qty {0:.8f} cost {1:.0f} pnl {2:.8f}".format(size, avg, pnl))
+            # self.logger.info("POSITION: qty {0:.8f} cost {1:.0f} pnl {2:.8f}".format(size, avg, pnl))
             self.last_position_size = size
         return size, avg, pnl, positions
 
@@ -482,18 +478,10 @@ class Exchange:
 
     def __lightning_fetch_balance(self):
         balance = dotdict()
-        balance.BTC = dotdict({'total':0, 'fee':0, 'used':0})
-        balance.JPY = dotdict({'total':0, 'fee':0, 'used':0})
         if self.lightning_enabled:
             res = self.lightning.inventories()
             for k, v in res.items():
-                account = dotdict()
-                account['total'] = v['amount']
-                account['free'] = v['available']
-                account['used'] = account['total'] - account['free']
-                balance[k] = account
-            self.logger.info("JPY: free {free:.8f} used {used:.8f} total {total:.8f}".format(**balance.JPY))
-            self.logger.info("BTC: free {free:.8f} used {used:.8f} total {total:.8f}".format(**balance.BTC))
+                balance[k] = dotdict(v)
         return balance
 
     def __lightning_check_order_status(self, show_last_n_orders = 0):

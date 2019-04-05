@@ -59,6 +59,14 @@ class Strategy:
         """板情報取得"""
         return self.exchange.fetch_order_book(symbol or self.settings.symbol)
 
+    def fetch_balance(self):
+        """資産情報取得"""
+        return self.exchange.fetch_balance(async=False)
+
+    def fetch_collateral(self):
+        """証拠金情報取得"""
+        return self.exchange.fetch_collateral(async=False)
+
     def cancel(self, myid):
         """注文をキャンセル"""
 
@@ -238,27 +246,12 @@ class Strategy:
             rich_ohlcv = pd.DataFrame.from_records(ohlcv, index="created_at")
         return rich_ohlcv
 
-    def calculate_sfd(self, ticker, executions, ticker_btcjpy, executions_btcjpy):
-        if len(executions)>0:
-            fx_ltp = executions[-1]['price']
-        else:
-            fx_ltp = ticker['ltp']
-        if len(executions_btcjpy)>0:
-            btc_jpy_ltp = executions_btcjpy[-1]['price']
-        else:
-            btc_jpy_ltp = ticker_btcjpy['ltp']
-        sfd = dotdict()
-        sfd.pct = ((fx_ltp / btc_jpy_ltp) * 100) - 100
-        sfd.fee = 0
-        SFD = [(5, 0.25), (10, 0.50), (15, 1.00), (20, 2.00)]
-        for pct, fee in SFD:
-            if sfd.pct >= pct:
-                sfd.fee = fee
-        return sfd
-
     def setup(self):
         # 実行中フラグセット
         self.running = True
+
+        # 高頻度取引？
+        self.hft = self.settings.interval < 3
 
         # 取引所セットアップ
         self.exchange = Exchange(apiKey=self.settings.apiKey, secret=self.settings.secret)
@@ -277,16 +270,12 @@ class Strategy:
         self.ep.wait_for(['ticker'])
 
         # 約定履歴・板差分から注文状態監視
-        # ep = self.streaming.get_endpoint(self.settings.symbol, ['executions', 'board'])
-        ep = self.streaming.get_endpoint(self.settings.symbol, ['executions'])
+        if self.hft:
+            ep = self.streaming.get_endpoint(self.settings.symbol, ['executions', 'board'])
+        else:
+            ep = self.streaming.get_endpoint(self.settings.symbol, ['executions'])
         self.exchange.start_monitoring(ep)
         self.monitoring_ep = ep
-
-        # SFD計算用に現物価格も購読
-        # self.fx_btc = (self.settings.symbol == 'FX_BTC_JPY')
-        # if self.fx_btc:
-        #     self.streaming.subscribe(product_id='BTC_JPY', topics=['ticker', 'executions'])
-        #     self.streaming.wait_for(product_id='BTC_JPY', topics=['ticker', 'executions'])
 
         # 売買ロジックセットアップ
         if self.yoursetup:
@@ -320,16 +309,11 @@ class Strategy:
                     f_result = None
             return f_result, last
 
-        self.hft = self.settings.interval < 3
         async_requests = []
-        fetch_balance = async_inverval(self.exchange.fetch_balance, 15, async_requests)
-        fetch_board_state = async_inverval(self.exchange.fetch_board_state, 3, async_requests)
         fetch_position = async_inverval(self.exchange.fetch_position, 3, async_requests)
-        fetch_collateral = async_inverval(self.exchange.fetch_collateral, 15, async_requests)
         check_order_status = async_inverval(self.exchange.check_order_status, 3, async_requests)
         errorWait = 0
-        f_collateral = f_balance = f_state = f_position = f_check = None
-        collateral = balance = board_state = position = None
+        f_position = position = f_check = None
         once = True
 
         while True:
@@ -353,13 +337,7 @@ class Strategy:
 
                 # ポジション等の情報取得
                 if no_needs_err_wait:
-                    # f_state = f_state or fetch_board_state(self.settings.symbol)
-                    f_balance = f_balance or fetch_balance()
-                    if self.settings.use_lightning:
-                        f_position = f_position or fetch_position(self.settings.symbol)
-                    else:
-                        f_position = f_position or fetch_position(self.settings.symbol)
-                        f_collateral = f_collateral or fetch_collateral()
+                    f_position = f_position or fetch_position(self.settings.symbol)
                     f_check = f_check or check_order_status(show_last_n_orders=self.settings.show_last_n_orders)
 
                     # リクエスト完了を待つ
@@ -369,16 +347,10 @@ class Strategy:
                         once = False
                     async_requests.clear()
 
-                    # 板状態取得
-                    f_state, board_state = async_result(f_state, board_state)
-
-                    # 資金情報取得
-                    f_balance, balance = async_result(f_balance, balance)
-
                     # 建玉取得
                     if self.settings.use_lightning:
-                        f_position, res = async_result(f_position, (position, collateral))
-                        position, collateral = res
+                        f_position, res = async_result(f_position, (position, None))
+                        position, _ = res
                     else:
                         f_position, position = async_result(f_position, position)
 
@@ -390,9 +362,6 @@ class Strategy:
                     # 内部管理のポジション数取得
                     self.position_size, self.position_avg_price, self.openprofit, self.positions = self.exchange.get_position()
 
-                    # 証拠金取得
-                    f_collateral, collateral = async_result(f_collateral, collateral)
-
                     # 注文情報取得
                     f_check, _ = async_result(f_check, None)
 
@@ -402,8 +371,7 @@ class Strategy:
                         self.logger.info("REST API: {0} ({1:.1f}ms)".format(self.api_state, self.api_avg_responce_time*1000))
 
                 # 価格データ取得
-                ticker = dotdict(self.ep.get_ticker())
-                ohlcv = executions = None
+                ticker, executions, ohlcv = dotdict(self.ep.get_ticker()), None, None
 
                 # インターバルが0の場合、約定履歴の到着を待つ
                 if self.settings.interval==0:
@@ -418,26 +386,12 @@ class Strategy:
                     else:
                         ohlcv = self.create_rich_ohlcv(self.ep.get_boundary_ohlcv())
 
-                # SFD価格剥離率
-                # if self.fx_btc:
-                #     ticker_btcjpy = dotdict(self.ep.get_ticker(product_id='BTC_JPY'))
-                #     executions_btcjpy = self.ep.get_executions(product_id='BTC_JPY')
-                #     sfd = self.calculate_sfd(ticker, executions, ticker_btcjpy, executions_btcjpy)
-                # else:
-                #     ticker_btcjpy = None
-                #     executions_btcjpy = None
-                #     sfd = dotdict({'pct':1, 'fee':0})
-
                 # 売買ロジック呼び出し
                 if no_needs_err_wait:
                     self.yourlogic(
                         ticker=ticker,
                         executions=executions,
                         ohlcv=ohlcv,
-                        position=position,
-                        collateral=collateral,
-                        balance=balance,
-                        board_state=board_state,
                         strategy=self)
                     errorWait = 0
                 else:
