@@ -45,7 +45,7 @@ class simple_market_maker:
 
         # 指値幅計算
         spr = max(stdev(ohlcv.close), 100)
-        pairs = [(0.04, spr*1.0, 3), (0.03, spr*0.5, 2), (0.02, spr*0.25, 1), (0.01, spr*0.125, 0)]
+        pairs = [(0.02, spr*0.75, 3), (0.02, spr*0.5, 2), (0.02, spr*0.25, 1)]
         maxsize = sum(p[0] for p in pairs)
         buymax = sellmax = strategy.position_size
         # mid = ohlcv.close[-1]
@@ -56,9 +56,9 @@ class simple_market_maker:
 
         if delay>2.0:
             if strategy.position_size>=0.01:
-                strategy.order('L close', 'sell', qty=0.01, limit=int(mid), minute_to_expire=1)
+                strategy.order('L close', 'sell', qty=0.01)
             elif strategy.position_size<=-0.01:
-                strategy.order('S close', 'buy', qty=0.01, limit=int(mid), minute_to_expire=1)
+                strategy.order('S close', 'buy', qty=0.01)
             for pair in pairs:
                 suffix = str(pair[2])
                 strategy.cancel('L'+suffix)
@@ -129,7 +129,7 @@ if __name__ == "__main__":
     strategy = Strategy(simple_market_maker().loop, 5)
     strategy.settings.apiKey = settings.apiKey
     strategy.settings.secret = settings.secret
-    strategy.settings.max_ohlcv_size = 12*45
+    strategy.settings.max_ohlcv_size = 12*20
     strategy.settings.disable_rich_ohlcv = True
-    strategy.risk.max_position_size = 0.1
+    strategy.risk.max_position_size = 0.06
     strategy.start()
