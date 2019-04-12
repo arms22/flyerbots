@@ -310,8 +310,8 @@ class Strategy:
             return f_result, last
 
         async_requests = []
-        fetch_position = async_inverval(self.exchange.fetch_position, 3, async_requests)
-        check_order_status = async_inverval(self.exchange.check_order_status, 3, async_requests)
+        fetch_position = async_inverval(self.exchange.fetch_position, 30, async_requests)
+        check_order_status = async_inverval(self.exchange.check_order_status, 5, async_requests)
         errorWait = 0
         f_position = position = f_check = None
         once = True

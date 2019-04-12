@@ -353,8 +353,8 @@ class Exchange:
                     ep.wait_any()
                     executions = ep.get_executions()
                     self.check_order_execution(executions)
-                    # boards = ep.get_boards()
-                    # self.check_order_open_and_cancel(boards)
+                    boards = ep.get_boards()
+                    self.check_order_open_and_cancel(boards)
                 except Exception as e:
                     self.logger.warning(type(e).__name__ + ": {0}".format(e))
             self.logger.info('Stop Monitoring')
