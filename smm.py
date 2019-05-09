@@ -75,16 +75,18 @@ class simple_market_maker:
                 for size, width, suffix, period in pairs:
                     buyid = 'L'+suffix
                     sellid = 'S'+suffix
-                    if buymax+size <= maxsize:
-                        strategy.order(buyid, 'buy', qty=size, limit=int(mid-width+ofs),
+                    buysize = min(maxsize-buymax,size)
+                    if buymax+buysize <= maxsize:
+                        strategy.order(buyid, 'buy', qty=buysize, limit=int(mid-width+ofs),
                             seconds_to_keep_order=period, minute_to_expire=1)
-                        buymax += size
+                        buymax += buysize
                     else:
                         strategy.cancel(buyid)
-                    if sellmax-size >= -maxsize:
-                        strategy.order(sellid, 'sell', qty=size, limit=int(mid+width+ofs),
+                    sellsize = min(maxsize+sellmax,size)
+                    if sellmax-sellsize >= -maxsize:
+                        strategy.order(sellid, 'sell', qty=sellsize, limit=int(mid+width+ofs),
                             seconds_to_keep_order=period, minute_to_expire=1)
-                        sellmax -= size
+                        sellmax -= sellsize
                     else:
                         strategy.cancel(sellid)
         else:
