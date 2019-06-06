@@ -330,6 +330,8 @@ class Strategy:
                         self.logger.info("Waiting...")
                     wait_sec = (-time() % self.interval) or self.interval
                     sleep(wait_sec)
+                else:
+                    self.ep.wait_any(['executions'], timeout=0.5)
                 self.monitoring_ep.suspend(True)
 
                 # 例外発生時の待ち
@@ -366,16 +368,12 @@ class Strategy:
                     f_check, _ = async_result(f_check, None)
 
                     # REST API状態取得
-                    self.api_state, self.api_avg_responce_time = self.exchange.api_state()
+                    self.api_state, self.api_avg_responce_time, self.api_token = self.exchange.api_state()
                     if self.api_state is not 'normal':
                         self.logger.info("REST API: {0} ({1:.1f}ms)".format(self.api_state, self.api_avg_responce_time*1000))
 
                 # 価格データ取得
                 ticker, executions, ohlcv = dotdict(self.ep.get_ticker()), None, None
-
-                # インターバルが0の場合、約定履歴の到着を待つ
-                if self.settings.interval==0:
-                    self.ep.wait_any(['executions'], timeout=0.5)
 
                 # OHLCVを作成しない場合、約定履歴を渡す
                 if self.settings.disable_create_ohlcv:

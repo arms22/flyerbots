@@ -3,6 +3,7 @@ from functools import wraps
 from time import sleep, time
 from datetime import datetime, timedelta
 import concurrent.futures
+import threading
 import ccxt
 import logging
 import json
@@ -24,6 +25,30 @@ class Exchange:
         self.order_is_not_accepted = None
         self.ltp = 0
         self.last_position_size = 0
+        self.api_token_cond = threading.Condition()
+        self.api_token = self.max_api_token = 15
+
+    def get_api_token(self):
+        with self.api_token_cond:
+            while self.running:
+                if self.api_token>0:
+                    self.api_token -= 1
+                    break
+                self.logger.info("API rate limit exceeded")
+                if not self.api_token_cond.wait(timeout=60): # フェールセーフ 60秒でタイムアウト
+                    self.logger.info("get_api_token() timeout")
+                    break
+
+    def feed_api_token(self):
+        # 3秒毎にトークンを5つ追加する(5分500リクエスト)
+        while self.running:
+            try:
+                with self.api_token_cond:
+                    self.api_token = max(self.api_token+5,self.max_api_token)
+                    self.api_token_cond.notify_all()
+            except Exception as e:
+                self.logger.warning(type(e).__name__ + ": {0}".format(e))
+            sleep(3)
 
     def safe_api_call(self, func):
         @wraps(func)
@@ -32,6 +57,7 @@ class Exchange:
             while retry > 0:
                 retry = retry - 1
                 try:
+                    self.get_api_token()
                     start = time()
                     result = func(*args,**kargs)
                     responce_time = (time() - start)
@@ -53,7 +79,7 @@ class Exchange:
             health = 'busy'
         elif mean_time < 1.0:
             health = 'very busy'
-        return health, mean_time
+        return health, mean_time, self.api_token
 
     def start(self):
         self.logger.info('Start Exchange')
@@ -85,7 +111,7 @@ class Exchange:
             self.logger.info('Markets: ' + v['symbol'])
 
         # スレッドプール作成
-        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=8)
+        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=9)
 
         # 並列注文処理完了待ち用リスト
         self.parallel_orders = []
@@ -105,6 +131,9 @@ class Exchange:
             # self.safe_fetch_orders = self.safe_api_call(self.__lightning_fetch_orders)
             # self.safe_fetch_board_state = self.safe_api_call(self.__lightning_fetch_board_state)
             # self.inter_check_order_status = self.__lightning_check_order_status
+
+        # APIトークンフィーダー起動
+        self.executor.submit(self.feed_api_token)
 
     def stop(self):
         if self.running:
