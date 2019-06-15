@@ -29,6 +29,10 @@ def loggingConf(filename='bitbot.log'):
                 'class': 'logging.StreamHandler',
                 'level': 'INFO',
                 'stream': 'ext://sys.stderr'}},
+        'loggers': {
+            'socketio':{'level': 'WARNING'},
+            'engineio':{'level': 'WARNING'},
+        },
         'root': {
             'level': 'INFO',
             'handlers': ['fileHandler', 'consoleHandler']},
