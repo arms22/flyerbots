@@ -26,7 +26,7 @@ class Exchange:
         self.ltp = 0
         self.last_position_size = 0
         self.api_token_cond = threading.Condition()
-        self.api_token = self.max_api_token = 15
+        self.api_token = self.max_api_token = 10
 
     def get_api_token(self):
         with self.api_token_cond:
