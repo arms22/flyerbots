@@ -3,6 +3,7 @@ import threading
 import logging
 import json
 import websocket
+import socketio
 from datetime import datetime
 from time import sleep
 import pandas as pd
@@ -10,19 +11,21 @@ from .utils import dotdict, stop_watch
 import math
 from itertools import chain
 from collections import deque
+from functools import partial
 
 class Streaming:
 
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         self.ws = None
+        self.sio = None
         self.running = False
         self.subscribed_channels = []
         self.endpoints = []
         self.connected = False
-        # self.on_message = stop_watch(self.on_message)
+        # self.ws_on_message = stop_watch(self.ws_on_message)
 
-    def on_message(self, message):
+    def ws_on_message(self, message):
         message = json.loads(message)
         if message["method"] == "channelMessage":
             channel = message["params"]["channel"]
@@ -30,19 +33,22 @@ class Streaming:
             for ep in self.endpoints:
                 ep.put(channel, message)
 
-    def on_error(self, error):
+    def ws_on_error(self, error):
         self.logger.info(error)
 
-    def on_close(self):
+    def ws_on_close(self):
         self.logger.info('disconnected')
         self.connected = False
 
-    def on_open(self):
+    def ws_on_open(self):
         self.logger.info('connected')
         self.connected = True
         if len(self.subscribed_channels):
             for channel in self.subscribed_channels:
-                self.ws.send(json.dumps({'method': 'subscribe', 'params': {'channel': channel}}))
+                self.ws_subscribe(channel)
+
+    def ws_subscribe(self,channel):
+        self.ws.send(json.dumps({'method': 'subscribe', 'params': {'channel': channel}}))
 
     def get_endpoint(self, product_id='FX_BTC_JPY', topics=['ticker', 'executions'], timeframe=60, max_ohlcv_size=100):
         ep = Streaming.Endpoint(product_id, topics, self.logger, timeframe, max_ohlcv_size)
@@ -50,7 +56,7 @@ class Streaming:
         for channel in ep.channels:
             if channel not in self.subscribed_channels:
                 if self.connected:
-                    self.ws.send(json.dumps({'method': 'subscribe', 'params': {'channel': channel}}))
+                    self.subscribe(channel)
                 self.subscribed_channels.append(channel)
         return ep
 
@@ -58,11 +64,43 @@ class Streaming:
         while self.running:
             try:
                 self.ws = websocket.WebSocketApp("wss://ws.lightstream.bitflyer.com/json-rpc",
-                    on_message=self.on_message,
-                    on_error=self.on_error,
-                    on_close=self.on_close)
-                self.ws.on_open = self.on_open
+                    on_message=self.ws_on_message,
+                    on_error=self.ws_on_error,
+                    on_close=self.ws_on_close)
+                self.ws.on_open = self.ws_on_open
                 self.ws.run_forever()
+            except Exception as e:
+                self.logger.exception(e)
+            if self.running:
+                sleep(5)
+
+    def sio_on_data(self, channel, data):
+        for ep in self.endpoints:
+            ep.put(channel, data)
+
+    def sio_on_disconnect(self):
+        self.logger.info('disconnected')
+        self.connected = False
+
+    def sio_on_connect(self):
+        self.logger.info('connected')
+        self.connected = True
+        if len(self.subscribed_channels):
+            for channel in self.subscribed_channels:
+                self.sio_subscribe(channel)
+
+    def sio_subscribe(self,channel):
+        self.sio.on(channel,partial(self.sio_on_data,channel))
+        self.sio.emit('subscribe',channel)
+
+    def sio_run_loop(self):
+        while self.running:
+            try:
+                self.sio = socketio.Client(reconnection=True, reconnection_attempts=0, reconnection_delay=1, reconnection_delay_max=30)
+                self.sio.on('connect', self.sio_on_connect)
+                self.sio.on('disconnect', self.sio_on_disconnect)
+                self.sio.connect('https://io.lightstream.bitflyer.com', transports = ['websocket'])
+                self.sio.wait()
             except Exception as e:
                 self.logger.exception(e)
             if self.running:
@@ -71,14 +109,15 @@ class Streaming:
     def start(self):
         self.logger.info('Start Streaming')
         self.running = True
-        self.thread = threading.Thread(target=self.ws_run_loop)
+        self.subscribe = self.sio_subscribe
+        self.thread = threading.Thread(target=self.sio_run_loop)
         self.thread.start()
 
     def stop(self):
         if self.running:
             self.logger.info('Stop Streaming')
             self.running = False
-            self.ws.close()
+            self.sio.disconnect()
             self.thread.join()
             for ep in self.endpoints:
                 ep.shutdown()
