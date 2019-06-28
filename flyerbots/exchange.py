@@ -44,7 +44,7 @@ class Exchange:
         while self.running:
             try:
                 with self.api_token_cond:
-                    self.api_token = max(self.api_token+5,self.max_api_token)
+                    self.api_token = min(self.api_token+5,self.max_api_token)
                     self.api_token_cond.notify_all()
             except Exception as e:
                 self.logger.warning(type(e).__name__ + ": {0}".format(e))
