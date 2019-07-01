@@ -8,96 +8,63 @@ from time import sleep
 class SFDBot:
 
     def __init__(self):
-        self.fx_exec_cnt = 0
-        self.fx_exec_side = ''
-        self.min_order_interval = timedelta(seconds=3)
-        self.next_order_accept_time = datetime.now() + self.min_order_interval
-        self.sell_decition_count = 0
-        self.buy_decition_count = 0
+        self.spot_ltp = None
+        self.spot_det = datetime.utcnow()
+        self.margin_ltp = None
+        self.margin_side = ''
 
-    def loop(self, ticker, executions, executions_btcjpy, ticker_btcjpy, position, **other):
+    def setup(self, strategy):
+        self.spot_ep = strategy.streaming.get_endpoint('BTC_JPY',['executions'])
+        self.spot_ep.wait_any(['executions'])
+        self.margin_ep = strategy.streaming.get_endpoint('FX_BTC_JPY',['executions'])
+        self.margin_ep.wait_any(['executions'])
 
-        cur_time = datetime.utcnow()
-        fx_last_t = pd.to_datetime(ticker.timestamp)
-        btc_last_t = pd.to_datetime(ticker_btcjpy.timestamp)
+    def loop(self, executions, strategy, **other):
 
-        fx_ltp = ticker.ltp
-        btc_ltp = ticker_btcjpy.ltp
-        if len(executions):
-            exec_time = pd.to_datetime(executions[-1]['exec_date'])
-            self.fx_exec_cnt = self.fx_exec_cnt + len(executions)
-            self.fx_exec_side = executions[-1]['side']
-            if exec_time > fx_last_t:
-                fx_last_t = exec_time
-                fx_ltp = executions[-1]['price']
+        strategy.streaming.wait_any()
+        T = datetime.utcnow()
 
-        if len(executions_btcjpy):
-            exec_time = pd.to_datetime(executions_btcjpy[-1]['exec_date'])
-            if exec_time > btc_last_t:
-                btc_last_t = exec_time
-                btc_ltp = executions_btcjpy[-1]['price']
+        marged_executions = []
+        execs = self.margin_ep.get_executions()
+        for e in execs:
+            e['product_id'] = 'FX'
+        marged_executions.extend(execs)
 
-        fx_exec_cnt = self.fx_exec_cnt
-        fx_exec_side = self.fx_exec_side
+        execs = self.spot_ep.get_executions()
+        for e in execs:
+            e['product_id'] = 'sp'
+        marged_executions.extend(execs)
 
-        fx_delay = cur_time - fx_last_t
-        fx_delay = (fx_delay.seconds + fx_delay.microseconds / 1000000)
+        marged_executions = sorted(marged_executions,key=lambda x:x['id'])
+        for e in marged_executions:
+            if e['product_id']=='sp':
+                self.spot_ltp = e['price']
+            elif e['product_id']=='FX':
+                self.margin_ltp = e['price']
+                self.margin_side = e['side']
 
-        btc_delay = cur_time - btc_last_t
-        btc_delay = (btc_delay.seconds + btc_delay.microseconds /1000000)
+        margin = self.margin_ltp
+        margin_side = self.margin_side
+        spot = self.spot_ltp
+        sfdpct = margin/spot
+        sfdask = ceil(self.spot_ltp * 1.05)
+        sfdbid = sfdask-1
+        maxsize = 0.03
+        lot = 0.01
+        deltapos = strategy.position_size+0.04
 
-        sfdpct = (fx_ltp / btc_ltp) * 100 - 100
-        sfdpct_bid = (ticker.best_bid / btc_ltp) * 100 - 100
-        sfdpct_ask = (ticker.best_ask / btc_ltp) * 100 - 100
-
-        bid_btcjpy = ticker_btcjpy.best_bid
-        ask_btcjpy = ticker_btcjpy.best_ask
-        # sfd_price = ceil(btc_ltp * 1.05000)+1
-        # sfd_safe_price = floor(min(bid_btcjpy, btc_ltp) * 1.05000)
-
-        # logger.info('{cur_time} {fx_delay:.4f} {btc_delay:.4f}'.format(**locals()))
-        # logger.info('SFD {sfdpct:.4f}({sfdpct_bid:.4f}/{sfdpct_ask:.4f}) '
-        #     'FX ltp[bid/ask] {fx_ltp} {fx_exec_side:<4}({fx_exec_cnt})[{ticker[best_bid]:.0f}({ticker[best_bid_size]:6.2f})/{ticker[best_ask]:.0f}({ticker[best_ask_size]:6.2f})] '
-        #     'BTC ltp[bid/ask] {btc_ltp:.0f}[{ticker_btcjpy[best_bid]:.0f}/{ticker_btcjpy[best_ask]:.0f}]'.format(**locals()))
-
-        qty_lot = 0.01
-
-        # if position.currentQty < 0:
-        #     strategy.order('L', 'buy', qty=-position.currentQty, limit=sfd_safe_price)
-        # else:
-        #     if sfdpct > 4.9:
-        #         strategy.order('S', 'sell', qty=qty_lot, limit=sfd_price)
-        #     strategy.cancel('L')
-
-        if sfdpct_bid > 5.0000:
-            self.sell_decition_count = self.sell_decition_count + 1
-        else:
-            self.sell_decition_count = 0
-        if sfdpct_ask < 5.0000:
-            self.buy_decition_count = self.buy_decition_count + 1
-        else:
-            self.buy_decition_count = 0            
-
-        showlog = False
-        t = datetime.now()
-        if t > self.next_order_accept_time:
-            if position.currentQty < 0:
-                if self.sell_decition_count > 2 and ticker.best_ask_size > 1:
-                    strategy.order('L', 'buy', qty=-position.currentQty, limit=ticker.best_ask, time_in_force='FOK')
-                    self.next_order_accept_time =  t + self.min_order_interval
-                    showlog = True
+        if deltapos<maxsize:
+            if margin<sfdbid-400:
+                strategy.order('L', 'buy', qty=lot, limit=margin, seconds_to_keep_order=2, minute_to_expire=1)
             else:
-                if self.sell_decition_count > 2 and ticker.best_bid_size > 1:
-                    strategy.order('S', 'sell', qty=qty_lot, limit=ticker.best_bid, time_in_force='FOK')
-                    self.next_order_accept_time =  t + self.min_order_interval
-                    showlog = True
+            	strategy.cancel('L')
+        if deltapos>-maxsize:
+            if margin>=sfdask:
+                strategy.order('S', 'sell', qty=lot, limit=margin, seconds_to_keep_order=2, minute_to_expire=1)
+            else:
+            	strategy.cancel('S')
 
-        if showlog:
-            logger.info('{cur_time} {fx_delay:.4f} {btc_delay:.4f}'.format(**locals()))
-            logger.info('SFD {sfdpct:.4f}({sfdpct_bid:.4f}/{sfdpct_ask:.4f}) '
-                'FX ltp[bid/ask] {fx_ltp} {fx_exec_side:<4}({fx_exec_cnt})[{ticker[best_bid]:.0f}({ticker[best_bid_size]:6.2f})/{ticker[best_ask]:.0f}({ticker[best_ask_size]:6.2f})] '
-                'BTC ltp[bid/ask] {btc_ltp:.0f}[{ticker_btcjpy[best_bid]:.0f}/{ticker_btcjpy[best_ask]:.0f}]'.format(**locals()))
-
+        logger.info(f'{sfdpct:.6f} {margin_side:4} {margin:.0f} {spot:.0f} {sfdask:.0f} {sfdbid:.0f}')
 
 if __name__ == "__main__":
     import settings
@@ -106,11 +73,16 @@ if __name__ == "__main__":
     import logging.config
 
     logging.basicConfig(level=logging.INFO)
+    logging.getLogger("socketio").setLevel(logging.WARNING)
+    logging.getLogger("engineio").setLevel(logging.WARNING)
     logger = logging.getLogger("SFDBot")
 
-    strategy = Strategy(SFDBot().loop, 0.0)
+    sfd = SFDBot()
+    strategy = Strategy(sfd.loop, 0.0001, sfd.setup)
     strategy.settings.apiKey = settings.apiKey
     strategy.settings.secret = settings.secret
-    strategy.settings.disable_ohlcv = True
-    strategy.risk.max_position_size = 0.01
+    strategy.settings.disable_create_ohlcv = True
+    strategy.risk.max_position_size = 0.05
     strategy.start()
+
+    

@@ -23,6 +23,7 @@ class Streaming:
         self.subscribed_channels = []
         self.endpoints = []
         self.connected = False
+        self.cond = threading.Condition()
         # self.ws_on_message = stop_watch(self.ws_on_message)
 
     def ws_on_message(self, message):
@@ -32,6 +33,8 @@ class Streaming:
             message = message["params"]["message"]
             for ep in self.endpoints:
                 ep.put(channel, message)
+            with self.cond:
+                self.cond.notify_all()
 
     def ws_on_error(self, error):
         self.logger.info(error)
@@ -77,6 +80,8 @@ class Streaming:
     def sio_on_data(self, channel, data):
         for ep in self.endpoints:
             ep.put(channel, data)
+        with self.cond:
+            self.cond.notify_all()
 
     def sio_on_disconnect(self):
         self.logger.info('disconnected')
@@ -121,6 +126,10 @@ class Streaming:
             self.thread.join()
             for ep in self.endpoints:
                 ep.shutdown()
+
+    def wait_any(self, timeout = None):
+        with self.cond:
+            self.cond.wait(timeout)
 
     class Endpoint:
 
