@@ -55,14 +55,16 @@ class SFDBot:
 
         if deltapos<maxsize:
             if margin<sfdbid-400:
+                sleep(0.1)
                 strategy.order('L', 'buy', qty=lot, limit=margin, seconds_to_keep_order=2, minute_to_expire=1)
-            else:
-            	strategy.cancel('L')
+            # else:
+            # 	strategy.cancel('L')
         if deltapos>-maxsize:
             if margin>=sfdask:
+                sleep(0.08)
                 strategy.order('S', 'sell', qty=lot, limit=margin, seconds_to_keep_order=2, minute_to_expire=1)
-            else:
-            	strategy.cancel('S')
+            # else:
+            # 	strategy.cancel('S')
 
         logger.info(f'{sfdpct:.6f} {margin_side:4} {margin:.0f} {spot:.0f} {sfdask:.0f} {sfdbid:.0f}')
 
