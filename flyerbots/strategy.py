@@ -8,6 +8,7 @@ import logging
 import logging.config
 import pandas as pd
 from .streaming import Streaming
+from .ohlcvbuilder import OHLCVBuilder
 from .exchange import Exchange
 from .utils import dotdict, stop_watch
 from math import fsum
@@ -268,10 +269,14 @@ class Strategy:
         # ストリーミング開始
         self.streaming = Streaming()
         self.streaming.start()
-        self.ep = self.streaming.get_endpoint(self.settings.symbol, ['ticker', 'executions'],
-            timeframe=self.settings.timeframe,
-            max_ohlcv_size=self.settings.max_ohlcv_size)
+        self.ep = self.streaming.get_endpoint(self.settings.symbol, ['ticker', 'executions'])
         self.ep.wait_for(['ticker'])
+
+        # ohlcvビルダー作成
+        self.ohlcvbuilder = OHLCVBuilder(
+            maxlen=self.settings.max_ohlcv_size,
+            timeframe=self.settings.timeframe,
+            disable_rich_ohlcv=self.settings.disable_rich_ohlcv)
 
         # 約定履歴・板差分から注文状態監視
         if 0:
@@ -385,9 +390,9 @@ class Strategy:
                     executions = self.ep.get_executions()
                 else:
                     if self.settings.use_lazy_ohlcv:
-                        ohlcv = self.create_rich_ohlcv(self.ep.get_lazy_ohlcv())
+                        ohlcv = self.ohlcvbuilder.create_lazy_ohlcv(self.ep.get_executions(chained=False))
                     else:
-                        ohlcv = self.create_rich_ohlcv(self.ep.get_boundary_ohlcv())
+                        ohlcv = self.ohlcvbuilder.create_boundary_ohlcv(self.ep.get_executions())
 
                 # 売買ロジック呼び出し
                 if no_needs_err_wait:

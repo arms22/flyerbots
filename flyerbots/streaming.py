@@ -4,14 +4,39 @@ import logging
 import json
 import websocket
 import socketio
-from datetime import datetime
 from time import sleep
-import pandas as pd
+from datetime import datetime
 from .utils import dotdict, stop_watch
-import math
 from itertools import chain
-from collections import deque
+from collections import deque, defaultdict
 from functools import partial
+
+def parse_exec_date(exec_date):
+    exec_date = exec_date.rstrip('Z')+'0000000'
+    return datetime(
+        int(exec_date[0:4]),
+        int(exec_date[5:7]),
+        int(exec_date[8:10]),
+        int(exec_date[11:13]),
+        int(exec_date[14:16]),
+        int(exec_date[17:19]),
+        int(exec_date[20:26]))
+
+def parse_order_ref_id(order_ref_id):
+    return datetime(
+        int(order_ref_id[3:7]),
+        int(order_ref_id[7:9]),
+        int(order_ref_id[9:11]),
+        int(order_ref_id[12:14]),
+        int(order_ref_id[14:16]),
+        int(order_ref_id[16:18]),
+        int(order_ref_id[19:]))
+
+def lightning_channels(product_id, topics):
+    return ['lightning_' + t + '_' + product_id.replace('/','_') for t in topics]
+
+def lightning_channel(product_id, topic):
+    return 'lightning_' + topic + '_' + product_id.replace('/','_')
 
 class Streaming:
 
@@ -23,18 +48,14 @@ class Streaming:
         self.subscribed_channels = []
         self.endpoints = []
         self.connected = False
-        self.cond = threading.Condition()
-        # self.ws_on_message = stop_watch(self.ws_on_message)
+        self.callbacks = defaultdict(list)
 
     def ws_on_message(self, message):
         message = json.loads(message)
         if message["method"] == "channelMessage":
             channel = message["params"]["channel"]
             message = message["params"]["message"]
-            for ep in self.endpoints:
-                ep.put(channel, message)
-            with self.cond:
-                self.cond.notify_all()
+            self.on_data(channel,message)
 
     def ws_on_error(self, error):
         self.logger.info(error)
@@ -53,16 +74,6 @@ class Streaming:
     def ws_subscribe(self,channel):
         self.ws.send(json.dumps({'method': 'subscribe', 'params': {'channel': channel}}))
 
-    def get_endpoint(self, product_id='FX_BTC_JPY', topics=['ticker', 'executions'], timeframe=60, max_ohlcv_size=100):
-        ep = Streaming.Endpoint(product_id, topics, self.logger, timeframe, max_ohlcv_size)
-        self.endpoints.append(ep)
-        for channel in ep.channels:
-            if channel not in self.subscribed_channels:
-                if self.connected:
-                    self.subscribe(channel)
-                self.subscribed_channels.append(channel)
-        return ep
-
     def ws_run_loop(self):
         while self.running:
             try:
@@ -78,10 +89,7 @@ class Streaming:
                 sleep(5)
 
     def sio_on_data(self, channel, data):
-        for ep in self.endpoints:
-            ep.put(channel, data)
-        with self.cond:
-            self.cond.notify_all()
+        self.on_data(channel,data)
 
     def sio_on_disconnect(self):
         self.logger.info('disconnected')
@@ -111,6 +119,29 @@ class Streaming:
             if self.running:
                 sleep(5)
 
+    def on_data(self,channel,data):
+        for cb in self.callbacks[channel]:
+            cb(channel,data)
+
+    def get_endpoint(self, product_id='FX_BTC_JPY', topics=['ticker', 'executions']):
+        ep = self.get_endpoint_for_channels(lightning_channels(product_id,topics))
+        ep.product_id = product_id
+        return ep
+
+    def get_endpoint_for_channels(self, channels):
+        ep = Streaming.Endpoint(self.logger)
+        self.endpoints.append(ep)
+        for channel in channels:
+            self.subscribe_channel(channel,ep.put)
+        return ep
+
+    def subscribe_channel(self, channel, callback):
+        self.callbacks[channel].append(callback)
+        if channel not in self.subscribed_channels:
+            if self.connected:
+                self.subscribe(channel)
+            self.subscribed_channels.append(channel)
+
     def start(self):
         self.logger.info('Start Streaming')
         self.running = True
@@ -127,43 +158,22 @@ class Streaming:
             for ep in self.endpoints:
                 ep.shutdown()
 
-    def wait_any(self, timeout = None):
-        with self.cond:
-            self.cond.wait(timeout)
-
     class Endpoint:
 
-        def __init__(self, product_id, topics, logger, timeframe, max_ohlcv_size):
+        def __init__(self, logger):
             self.logger = logger
-            self.product_id = product_id.replace('/','_')
-            self.topics = topics
             self.cond = threading.Condition()
-            self.channels = ['lightning_' + t + '_' + self.product_id for t in topics]
-            self.data = {}
-            self.last = {}
+            self.data = defaultdict(lambda:deque(maxlen=1000))
+            self.latest = defaultdict(lambda:None)
             self.closed = False
             self.suspend_count = 0
-            for channel in self.channels:
-                self.data[channel] = deque(maxlen=10000)
-                self.last[channel] = None
-            # self.get_data = stop_watch(self.get_data)
-            # self.put = stop_watch(self.put)
-            # self.parse_exec_date = stop_watch(self.parse_exec_date)
-            # self.make_ohlcv = stop_watch(self.make_ohlcv)
-            # self.create_ohlcv = stop_watch(self.create_ohlcv)
-            # self.get_lazy_ohlcv = stop_watch(self.get_lazy_ohlcv)
-            # self.get_boundary_ohlcv = stop_watch(self.get_boundary_ohlcv)
-            self.timeframe = timeframe
-            self.ohlcv = deque(maxlen=max_ohlcv_size)
-            self.remain_executions = []
-            self.lst_timeframe = datetime.utcnow().timestamp() // timeframe
+            self.product_id = ''
 
         def put(self, channel, message):
-            if channel in self.data:
-                with self.cond:
-                    self.data[channel].append(message)
-                    self.last[channel] = message
-                    self.cond.notify_all()
+            with self.cond:
+                self.data[channel].append(message)
+                self.latest[channel] = message
+                self.cond.notify_all()
 
         def suspend(self, flag):
             with self.cond:
@@ -173,10 +183,9 @@ class Streaming:
                     self.suspend_count = max(self.suspend_count-1, 0)
                 self.cond.notify_all()
 
-        def wait_for(self, topics = None):
-            topics = topics or self.topics
-            for topic in topics:
-                channel = 'lightning_' + topic + '_' + self.product_id
+        def wait_for(self, topics=[], product_id=None):
+            channels = lightning_channels(product_id or self.product_id, topics)
+            for channel in channels:
                 while True:
                     data = self.data[channel]
                     if len(data) or self.closed:
@@ -185,9 +194,8 @@ class Streaming:
                         self.logger.info('Waiting for stream data...')
                         sleep(1)
 
-        def wait_any(self, topics = None, timeout = None):
-            topics = topics or self.topics
-            channels = ['lightning_' + t + '_' + self.product_id for t in topics]
+        def wait_any(self, topics=[], timeout=None, product_id=None):
+            channels = lightning_channels(product_id or self.product_id, topics)
             result = True
             with self.cond:
                 while True:
@@ -201,6 +209,8 @@ class Streaming:
                         if self.cond.wait(timeout) == False:
                             result = False
                             break
+                        if len(channels)==0:
+                            break
             return result
 
         def shutdown(self):
@@ -208,136 +218,44 @@ class Streaming:
                 self.closed = True
                 self.cond.notify_all()
 
-        def get_data(self, topic, blocking, timeout):
-            channel = 'lightning_' + topic + '_' + self.product_id
-            if channel in self.data:
-                with self.cond:
-                    if blocking:
-                        while True:
-                            if len(self.data[channel]) or self.closed:
+        def get_channel_data(self, channel, blocking, timeout):
+            with self.cond:
+                if blocking:
+                    while True:
+                        if len(self.data[channel]) or self.closed:
+                            break
+                        else:
+                            if self.cond.wait(timeout) == False:
                                 break
-                            else:
-                                if self.cond.wait(timeout) == False:
-                                    break
-                    data = list(self.data[channel])
-                    last = self.last[channel]
-                    self.data[channel].clear()
-                return data, last
-            return [], None
-
-        def get_last(self, topic):
-            channel = 'lightning_' + topic + '_' + self.product_id
-            return self.last[channel] if channel in self.data else None
-
-        def get_ticker(self, blocking = False, timeout = None):
-            data, last = self.get_data('ticker', blocking, timeout)
-            return last
-
-        def get_tickers(self, blocking = False, timeout = None):
-            data, last = self.get_data('ticker', blocking, timeout)
+                data = list(self.data[channel])
+                self.data[channel].clear()
             return data
 
-        def get_executions(self, blocking = False, timeout = None):
-            data, last = self.get_data('executions', blocking, timeout)
+        def get_ticker(self, blocking=False, timeout=None, product_id=None):
+            channel = lightning_channel(product_id or self.product_id, 'ticker')
+            self.get_channel_data(channel, blocking, timeout)
+            return self.latest[channel]
+
+        def get_tickers(self,blocking=False, timeout=None, product_id=None):
+            channel = lightning_channel(product_id or self.product_id, 'ticker')
+            return self.get_channel_data(channel, blocking, timeout)
+
+        def get_executions(self, blocking=False, timeout=None, product_id=None, chained=True):
+            channel = lightning_channel(product_id or self.product_id, 'executions')
+            data = self.get_channel_data(channel, blocking, timeout)
+            if not chained:
+                return data
             return list(chain.from_iterable(data))
 
-        def get_board_snapshot(self, blocking = False, timeout = None):
-            data, last = self.get_data('board_snapshot', blocking, timeout)
-            return last
+        def get_board_snapshot(self, blocking=False, timeout=None, product_id=None):
+            channel = lightning_channel(product_id or self.product_id, 'board_snapshot')
+            self.get_channel_data(channel, blocking, timeout)
+            return self.latest[channel]
 
-        def get_boards(self, blocking = False, timeout = None):
-            data, last = self.get_data('board', blocking, timeout)
-            return data
+        def get_boards(self, blocking=False, timeout=None, product_id=None):
+            channel = lightning_channel(product_id or self.product_id, 'board')
+            return self.get_channel_data(channel, blocking, timeout)
 
-        @staticmethod
-        def parse_exec_date(exec_date):
-            exec_date = exec_date.rstrip('Z')+'0000000'
-            return datetime(
-                int(exec_date[0:4]),
-                int(exec_date[5:7]),
-                int(exec_date[8:10]),
-                int(exec_date[11:13]),
-                int(exec_date[14:16]),
-                int(exec_date[17:19]),
-                int(exec_date[20:26]))
-
-        @staticmethod
-        def parse_order_ref_id(order_ref_id):
-            return datetime(
-                int(order_ref_id[3:7]),
-                int(order_ref_id[7:9]),
-                int(order_ref_id[9:11]),
-                int(order_ref_id[12:14]),
-                int(order_ref_id[14:16]),
-                int(order_ref_id[16:18]),
-                int(order_ref_id[19:]))
-
-        def get_lazy_ohlcv(self):
-            data, last = self.get_data('executions',False,None)
-            if len(self.remain_executions)>0:
-                self.ohlcv.pop()
-            if len(data)==0:
-                e = last[-1].copy()
-                e['size'] = 0
-                e['side'] = ''
-                data.append([e])
-            for dat in data:
-                closed_at = self.parse_exec_date(dat[-1]['exec_date'])
-                cur_timeframe = closed_at.timestamp() // self.timeframe
-                if cur_timeframe > self.lst_timeframe:
-                    if len(self.remain_executions) > 0:
-                        self.ohlcv.append(self.make_ohlcv(self.remain_executions))
-                    self.remain_executions = []
-                    self.lst_timeframe = cur_timeframe
-                self.remain_executions.extend(dat)
-            if len(self.remain_executions) > 0:
-                self.ohlcv.append(self.make_ohlcv(self.remain_executions))
-            return list(self.ohlcv)
-
-        def get_boundary_ohlcv(self):
-            data, last = self.get_data('executions',False,None)
-            executions = list(chain.from_iterable(data))
-            if len(executions)==0:
-                e = last[-1].copy()
-                e['size'] = 0
-                e['side'] = ''
-                executions.append(e)
-            self.ohlcv.append(self.make_ohlcv(executions))
-            return list(self.ohlcv)
-
-        def make_ohlcv(self, executions):
-            price = [e['price'] for e in executions]
-            buy = [e for e in executions if e['side'] == 'BUY']
-            sell = [e for e in executions if e['side'] == 'SELL']
-            ohlcv = dotdict()
-            ohlcv.open = price[0]
-            ohlcv.high = max(price)
-            ohlcv.low = min(price)
-            ohlcv.close = price[-1]
-            ohlcv.volume = sum(e['size'] for e in executions)
-            ohlcv.buy_volume = sum(e['size'] for e in buy)
-            ohlcv.sell_volume = sum(e['size'] for e in sell)
-            ohlcv.volume_imbalance = ohlcv.buy_volume - ohlcv.sell_volume
-            ohlcv.buy_count = len(buy)
-            ohlcv.sell_count = len(sell)
-            ohlcv.trades = ohlcv.buy_count + ohlcv.sell_count
-            ohlcv.imbalance = ohlcv.buy_count - ohlcv.sell_count
-            ohlcv.average = sum(price) / len(price)
-            ohlcv.average_sq = sum(p**2 for p in price) / len(price)
-            ohlcv.variance = ohlcv.average_sq - (ohlcv.average * ohlcv.average)
-            ohlcv.stdev = math.sqrt(ohlcv.variance)
-            ohlcv.vwap = sum(e['price']*e['size'] for e in executions) / ohlcv.volume if ohlcv.volume > 0 else price[-1]
-            ohlcv.created_at = datetime.utcnow()
-            ohlcv.closed_at = self.parse_exec_date(executions[-1]['exec_date'])
-            e = executions[-1]
-            if e['side']=='SELL':
-                ohlcv.market_order_delay = (ohlcv.closed_at-self.parse_order_ref_id(e['sell_child_order_acceptance_id'])).total_seconds()
-            elif e['side']=='BUY':
-                ohlcv.market_order_delay = (ohlcv.closed_at-self.parse_order_ref_id(e['buy_child_order_acceptance_id'])).total_seconds()
-            else:
-                ohlcv.market_order_delay = 0
-            ohlcv.distribution_delay = (ohlcv.created_at - ohlcv.closed_at).total_seconds()
-            return ohlcv
 
 if __name__ == "__main__":
     import argparse
