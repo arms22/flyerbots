@@ -83,6 +83,10 @@ class Strategy:
 
         self.exchange.cancel(myid)
 
+    def cancel_open_orders(self, symbol = None):
+        """すべての注文をキャンセル"""
+        self.exchange.cancel_open_orders(symbol or self.settings.symbol)
+
     def cancel_order_all(self, symbol = None):
         """すべての注文をキャンセル"""
         self.exchange.cancel_order_all(symbol or self.settings.symbol)
@@ -128,7 +132,7 @@ class Strategy:
                     continue
             self.exchange.create_order(myid, side, size, None, None, None, None, symbol)
 
-    def order(self, myid, side, qty, limit=None, stop=None, time_in_force = None, minute_to_expire = None, symbol = None, limit_mask = 0, seconds_to_keep_order = None):
+    def order(self, myid, side, qty, limit=None, stop=None, time_in_force = None, minute_to_expire = None, symbol = None, limit_mask = 1, seconds_to_keep_order = None):
         """注文"""
 
         if self.exchange.order_is_not_accepted is not None:
@@ -270,7 +274,7 @@ class Strategy:
         self.ep.wait_for(['ticker'])
 
         # 約定履歴・板差分から注文状態監視
-        if self.hft:
+        if 0:
             ep = self.streaming.get_endpoint(self.settings.symbol, ['executions', 'board'])
         else:
             ep = self.streaming.get_endpoint(self.settings.symbol, ['executions'])
@@ -370,7 +374,8 @@ class Strategy:
                     # REST API状態取得
                     self.api_state, self.api_avg_responce_time, self.api_token = self.exchange.api_state()
                     if self.api_state is not 'normal':
-                        self.logger.info("REST API: {0} ({1:.1f}ms)".format(self.api_state, self.api_avg_responce_time*1000))
+                        if not self.hft:
+                            self.logger.info("REST API: {0} ({1:.1f}ms)".format(self.api_state, self.api_avg_responce_time*1000))
 
                 # 価格データ取得
                 ticker, executions, ohlcv = dotdict(self.ep.get_ticker()), None, None
@@ -393,7 +398,8 @@ class Strategy:
                         strategy=self)
                     errorWait = 0
                 else:
-                    self.logger.info("Waiting for Error...")
+                    if not self.hft:
+                        self.logger.info("Waiting for Error...")
 
             except ccxt.DDoSProtection as e:
                 self.logger.warning(type(e).__name__ + ": {0}".format(e))

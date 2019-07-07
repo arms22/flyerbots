@@ -50,14 +50,13 @@ class Exchange:
                 self.logger.warning(type(e).__name__ + ": {0}".format(e))
             sleep(3)
 
-    def safe_api_call(self, func):
+    def measure_response_time(self, func):
         @wraps(func)
-        def wrapper(*args, **kargs) :
+        def wrapper(*args, **kargs):
             retry = 3
             while retry > 0:
                 retry = retry - 1
                 try:
-                    self.get_api_token()
                     start = time()
                     result = func(*args,**kargs)
                     responce_time = (time() - start)
@@ -90,28 +89,32 @@ class Exchange:
         self.exchange.urls['api'] = 'https://api.bitflyer.com'
         self.exchange.timeout = 60 * 1000
 
+        # レートリミット制御を上書き
+        self.exchange.enableRateLimit = True
+        self.exchange.throttle = self.get_api_token
+
         # 応答時間計測用にラッパーをかぶせる
-        # self.wait_for_completion = stop_watch(self.wait_for_completion)
-        self.safe_create_order = self.safe_api_call(self.__restapi_create_order)
-        self.safe_cancel_order = self.safe_api_call(self.__restapi_cancel_order)
-        self.safe_cancel_order_all = self.safe_api_call(self.__restapi_cancel_order_all)
-        self.safe_fetch_collateral = self.safe_api_call(self.__restapi_fetch_collateral)
-        self.safe_fetch_position = self.safe_api_call(self.__restapi_fetch_position)
-        self.safe_fetch_balance = self.safe_api_call(self.__restapi_fetch_balance)
-        self.safe_fetch_orders = self.safe_api_call(self.__restapi_fetch_orders)
-        self.safe_fetch_board_state = self.safe_api_call(self.__restapi_fetch_board_state)
+        self.exchange.fetch = self.measure_response_time(self.exchange.fetch)
+
+        # RestAPIとWebAPI切り換え用
+        self.inter_create_order = self.__restapi_create_order
+        self.inter_cancel_order = self.__restapi_cancel_order
+        self.inter_cancel_order_all = self.__restapi_cancel_order_all
+        self.inter_fetch_collateral = self.__restapi_fetch_collateral
+        self.inter_fetch_position = self.__restapi_fetch_position
+        self.inter_fetch_balance = self.__restapi_fetch_balance
+        self.inter_fetch_orders = self.__restapi_fetch_orders
+        self.inter_fetch_board_state = self.__restapi_fetch_board_state
         self.inter_check_order_status = self.__restapi_check_order_status
 
         # プライベートAPI有効判定
         self.private_api_enabled = len(self.apiKey)>0 and len(self.secret)>0
 
-        # マーケット一覧表示
-        self.exchange.load_markets()
-        for k, v in self.exchange.markets.items():
-            self.logger.info('Markets: ' + v['symbol'])
-
         # スレッドプール作成
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=9)
+
+        # APIトークンフィーダー起動
+        self.executor.submit(self.feed_api_token)
 
         # 並列注文処理完了待ち用リスト
         self.parallel_orders = []
@@ -123,17 +126,19 @@ class Exchange:
         if self.lightning_enabled:
             self.lightning.login()
             # LightningAPIに置き換える
-            self.safe_create_order = self.safe_api_call(self.__lightning_create_order)
-            # self.safe_cancel_order = self.safe_api_call(self.__lightning_cancel_order)
-            self.safe_cancel_order_all = self.safe_api_call(self.__lightning_cancel_order_all)
-            self.safe_fetch_position = self.safe_api_call(self.__lightning_fetch_position_and_collateral)
-            self.safe_fetch_balance = self.safe_api_call(self.__lightning_fetch_balance)
-            # self.safe_fetch_orders = self.safe_api_call(self.__lightning_fetch_orders)
-            # self.safe_fetch_board_state = self.safe_api_call(self.__lightning_fetch_board_state)
+            self.inter_create_order = self.__lightning_create_order
+            # self.inter_cancel_order = self.__lightning_cancel_order
+            self.inter_cancel_order_all = self.__lightning_cancel_order_all
+            self.inter_fetch_position = self.__lightning_fetch_position_and_collateral
+            self.inter_fetch_balance = self.__lightning_fetch_balance
+            # self.inter_fetch_orders = self.__lightning_fetch_orders
+            # self.inter_fetch_board_state = self.__lightning_fetch_board_state
             # self.inter_check_order_status = self.__lightning_check_order_status
 
-        # APIトークンフィーダー起動
-        self.executor.submit(self.feed_api_token)
+        # マーケット一覧表示
+        self.exchange.load_markets()
+        for k, v in self.exchange.markets.items():
+            self.logger.info('Markets: ' + v['symbol'])
 
     def stop(self):
         if self.running:
@@ -158,7 +163,7 @@ class Exchange:
     def create_order(self, myid, side, qty, limit, stop, time_in_force, minute_to_expire, symbol):
         """新規注文"""
         if self.private_api_enabled:
-            self.parallel_orders.append(self.executor.submit(self.safe_create_order,
+            self.parallel_orders.append(self.executor.submit(self.inter_create_order,
                                 myid, side, qty,limit, stop,time_in_force, minute_to_expire, symbol))
 
     def cancel(self, myid):
@@ -166,23 +171,29 @@ class Exchange:
         if self.private_api_enabled:
             cancel_orders = self.om.cancel_order(myid)
             for o in cancel_orders:
-                self.logger.info("CANCEL: {myid} {status} {side} {price} {filled}/{amount} {id}".format(**o))
-                self.parallel_orders.append(self.executor.submit(self.safe_cancel_order, order_id=o['id'], symbol=o['symbol']))
+                self.parallel_orders.append(self.executor.submit(self.inter_cancel_order, o))
+
+    def cancel_open_orders(self, symbol):
+        """すべての注文をキャンセルする"""
+        if self.private_api_enabled:
+            cancel_orders = self.om.cancel_order_all()
+            for o in cancel_orders:
+                self.parallel_orders.append(self.executor.submit(self.inter_cancel_order, o))
 
     def cancel_order_all(self, symbol):
         """すべての注文をキャンセルする"""
         if self.private_api_enabled:
             cancel_orders = self.om.cancel_order_all()
-            for o in cancel_orders:
-                self.logger.info("CANCEL: {myid} {status} {side} {price} {filled}/{amount} {id}".format(**o))
-                self.parallel_orders.append(self.executor.submit(self.safe_cancel_order, order_id=o['id'], symbol=o['symbol']))
+            if len(cancel_orders):
+                self.inter_cancel_order_all(symbol=symbol)
 
     def __restapi_cancel_order_all(self, symbol):
         self.exchange.private_post_cancelallchildorders(
             params={'product_code': self.exchange.market_id(symbol)})
 
-    def __restapi_cancel_order(self, order_id, symbol):
-        self.exchange.cancel_order(order_id, symbol)
+    def __restapi_cancel_order(self, order):
+        self.exchange.cancel_order(order['id'], order['symbol'])
+        self.logger.info("CANCEL: {myid} {status} {side} {price} {filled}/{amount} {id}".format(**order))
 
     def __restapi_create_order(self, myid, side, qty, limit, stop, time_in_force, minute_to_expire, symbol):
         # raise ccxt.ExchangeNotAvailable('sendchildorder {"status":-208,"error_message":"Order is not accepted"}')
@@ -226,8 +237,8 @@ class Exchange:
     def fetch_position(self, symbol, async = True):
         """建玉一覧取得"""
         if async:
-            return self.executor.submit(self.safe_fetch_position, symbol)
-        return self.safe_fetch_position(symbol)
+            return self.executor.submit(self.inter_fetch_position, symbol)
+        return self.inter_fetch_position(symbol)
 
     def __restapi_fetch_collateral(self):
         collateral = dotdict()
@@ -243,8 +254,8 @@ class Exchange:
     def fetch_collateral(self, async = True):
         """証拠金情報を取得"""
         if async:
-            return self.executor.submit(self.safe_fetch_collateral)
-        return self.safe_fetch_collateral()
+            return self.executor.submit(self.inter_fetch_collateral)
+        return self.inter_fetch_collateral()
 
     def __restapi_fetch_balance(self):
         balance = dotdict()
@@ -257,8 +268,8 @@ class Exchange:
     def fetch_balance(self, async = True):
         """資産情報取得"""
         if async:
-            return self.executor.submit(self.safe_fetch_balance)
-        return self.safe_fetch_balance()
+            return self.executor.submit(self.inter_fetch_balance)
+        return self.inter_fetch_balance()
 
     def fetch_open_orders(self, symbol, limit=100):
         orders = []
@@ -278,8 +289,8 @@ class Exchange:
 
     def fetch_orders(self, symbol, limit=100, async=False):
         if async:
-            return self.executor.submit(self.safe_fetch_orders, symbol, limit)
-        return self.safe_fetch_orders(symbol, limit)
+            return self.executor.submit(self.inter_fetch_orders, symbol, limit)
+        return self.inter_fetch_orders(symbol, limit)
 
     def fetch_order_book(self, symbol):
         """板情報取得"""
@@ -397,7 +408,7 @@ class Exchange:
             symbols = list(set(v['symbol'] for v in my_orders.values()))
             latest_orders = []
             for symbol in symbols:
-                latest_orders.extend(self.safe_fetch_orders(symbol=symbol, limit=50))
+                latest_orders.extend(self.exchange.fetch_orders(symbol=symbol, limit=50))
             # 注文情報更新
             for latest in latest_orders:
                 o = my_orders.get(latest['id'], None)
@@ -437,8 +448,8 @@ class Exchange:
     def fetch_board_state(self, symbol, async = True):
         """板状態取得"""
         if async:
-            return self.executor.submit(self.safe_fetch_board_state, symbol)
-        return self.safe_fetch_board_state(symbol)
+            return self.executor.submit(self.inter_fetch_board_state, symbol)
+        return self.inter_fetch_board_state(symbol)
 
     def enable_lightning_api(self, userid, password):
         """LightningAPIを有効にする"""
@@ -471,8 +482,9 @@ class Exchange:
         order = self.om.add_order(order)
         self.logger.info("NEW: {myid} {status} {side} {price} {filled}/{amount} {id}".format(**order))
 
-    def __lightning_cancel_order(self, order_id, symbol):
-        self.lightning.cancelorder(product_code=self.exchange.market_id(symbol), order_id=order_id)
+    def __lightning_cancel_order(self, order):
+        self.lightning.cancelorder(product_code=self.exchange.market_id(order['symbol']), order_id=order['id'])
+        self.logger.info("CANCEL: {myid} {status} {side} {price} {filled}/{amount} {id}".format(**order))
 
     def __lightning_cancel_order_all(self, symbol):
         self.lightning.cancelallorder(product_code=self.exchange.market_id(symbol))
@@ -512,6 +524,3 @@ class Exchange:
             for k, v in res.items():
                 balance[k] = dotdict(v)
         return balance
-
-    def __lightning_check_order_status(self, show_last_n_orders = 0):
-        pass
