@@ -74,6 +74,9 @@ class Streaming:
     def ws_subscribe(self,channel):
         self.ws.send(json.dumps({'method': 'subscribe', 'params': {'channel': channel}}))
 
+    def ws_disconnect(self):
+        self.ws.close()
+
     def ws_run_loop(self):
         while self.running:
             try:
@@ -105,6 +108,9 @@ class Streaming:
     def sio_subscribe(self,channel):
         self.sio.on(channel,partial(self.sio_on_data,channel))
         self.sio.emit('subscribe',channel)
+
+    def sio_disconnect(self):
+        self.sio.disconnect()
 
     def sio_run_loop(self):
         while self.running:
@@ -145,15 +151,21 @@ class Streaming:
     def start(self):
         self.logger.info('Start Streaming')
         self.running = True
-        self.subscribe = self.sio_subscribe
-        self.thread = threading.Thread(target=self.sio_run_loop)
+        if 1:
+            self.subscribe = self.sio_subscribe
+            self.disconnect = self.sio_disconnect
+            self.thread = threading.Thread(target=self.sio_run_loop)
+        else:
+            self.subscribe = self.ws_subscribe
+            self.disconnect = self.ws_disconnect
+            self.thread = threading.Thread(target=self.ws_run_loop)
         self.thread.start()
 
     def stop(self):
         if self.running:
             self.logger.info('Stop Streaming')
             self.running = False
-            self.sio.disconnect()
+            self.disconnect()
             self.thread.join()
             for ep in self.endpoints:
                 ep.shutdown()
