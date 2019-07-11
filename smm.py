@@ -54,18 +54,19 @@ class simple_market_maker:
             delay = sorted(dist)[int(len(dist)/2)]
 
             # 指値幅計算
-            spr = min(max(stdev(ohlcv.close),1000),5000)
-            pairs = [(0.01, spr*0.7, '2', 9.5), (0.01, spr*0.35, '1', 4.5)]
+            spr = min(max(stdev(ohlcv.close[-12*3:]),2500),7500)
+            pairs = [(0.02, spr*0.7, '2', 9.5), (0.02, spr*0.35, '1', 4.5)]
             maxsize = sum(p[0] for p in pairs)
-            buymax = sellmax = strategy.position_size
+            deltapos = strategy.position_size+0.04
+            buymax = sellmax = deltapos
             mid = ohlcv.close[-1]
             z = zscore(ohlcv.volume_imbalance)
-            ofs = z*9
+            ofs = z*33
 
             if delay>2.5:
-                if strategy.position_size>=0.01:
+                if deltapos>=0.01:
                     strategy.order('Lc', 'sell', qty=0.01)
-                elif strategy.position_size<=-0.01:
+                elif deltapos<=-0.01:
                     strategy.order('Sc', 'buy', qty=0.01)
                 for _, _,suffix,_ in pairs:
                     strategy.cancel('L'+suffix)
@@ -90,7 +91,10 @@ class simple_market_maker:
                         strategy.cancel(sellid)
         else:
             strategy.cancel_order_all()
-            strategy.close_position()
+            if deltapos>=0.01:
+                strategy.order('Lc', 'sell', qty=deltapos)
+            elif deltapos<=-0.01:
+                strategy.order('Sc', 'buy', qty=-deltapos)
 
 if __name__ == "__main__":
     import settings
@@ -104,7 +108,7 @@ if __name__ == "__main__":
     strategy = Strategy(simple_market_maker().loop, 5)
     strategy.settings.apiKey = settings.apiKey
     strategy.settings.secret = settings.secret
-    strategy.settings.max_ohlcv_size = 12*10
+    strategy.settings.max_ohlcv_size = 300
     strategy.settings.disable_rich_ohlcv = True
-    strategy.risk.max_position_size = 0.02
+    strategy.risk.max_position_size = 0.1
     strategy.start()
