@@ -47,6 +47,8 @@ class simple_market_maker:
                 coffee_break = True
                 break
 
+        deltapos = strategy.position_size+0.04
+
         # エントリー
         if not coffee_break:
             # 遅延評価
@@ -57,7 +59,6 @@ class simple_market_maker:
             spr = min(max(stdev(ohlcv.close[-12*3:]),2500),7500)
             pairs = [(0.02, spr*0.7, '2', 9.5), (0.02, spr*0.35, '1', 4.5)]
             maxsize = sum(p[0] for p in pairs)
-            deltapos = strategy.position_size+0.04
             buymax = sellmax = deltapos
             mid = ohlcv.close[-1]
             z = zscore(ohlcv.volume_imbalance)
