@@ -47,24 +47,25 @@ class simple_market_maker:
                 coffee_break = True
                 break
 
-        deltapos = strategy.position_size+0.04
+        deltapos = strategy.position_size+0.00
 
         # エントリー
         if not coffee_break:
             # 遅延評価
-            dist = ohlcv.distribution_delay[-3:]
-            delay = sorted(dist)[int(len(dist)/2)]
+            delay = ohlcv.distribution_delay.rolling(3).median().values[-1]
 
             # 指値幅計算
-            spr = min(max(stdev(ohlcv.close[-12*3:]),2500),7500)
-            pairs = [(0.02, spr*0.7, '2', 9.5), (0.02, spr*0.35, '1', 4.5)]
+            spr = min(max(stdev(ohlcv.close,12*3).values[-1],2500),7500)
+            trades = ema(ohlcv.trades,4).values[-1]
+            lot = 0.01 if trades<70 else 0.05
+            pairs = [(lot, spr*0.50, '2', 9.5), (lot, spr*0.25, '1', 4.5)]
             maxsize = sum(p[0] for p in pairs)
             buymax = sellmax = deltapos
-            mid = ohlcv.close[-1]
-            z = zscore(ohlcv.volume_imbalance)
+            mid = tema(ohlcv.close,4).values[-1]
+            z = zscore(ohlcv.volume_imbalance,300).values[-1]
             ofs = z*33
 
-            if delay>2.5:
+            if delay>5.0:
                 if deltapos>=0.01:
                     strategy.order('Lc', 'sell', qty=0.01)
                 elif deltapos<=-0.01:
@@ -109,7 +110,7 @@ if __name__ == "__main__":
     strategy = Strategy(simple_market_maker().loop, 5)
     strategy.settings.apiKey = settings.apiKey
     strategy.settings.secret = settings.secret
-    strategy.settings.max_ohlcv_size = 300
-    strategy.settings.disable_rich_ohlcv = True
+    # strategy.settings.max_ohlcv_size = 300
+    # strategy.settings.disable_rich_ohlcv = True
     strategy.risk.max_position_size = 0.1
     strategy.start()
