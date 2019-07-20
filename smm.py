@@ -17,20 +17,6 @@ no_trade_time_range = [
     (time(18,55), time(19, 55)), # JST 03:55-04:55 Bitflyerメンテナンスタイム
 ]
 
-def stdev(src):
-    average = sum(src) / len(src)
-    average_sq = sum(p**2 for p in src) / len(src)
-    var = average_sq - (average * average)
-    dev = sqrt(var)
-    return dev
-
-def zscore(source):
-    average = sum(source)/len(source)
-    average_sq = sum(p**2 for p in source) / len(source)
-    variance = average_sq - (average * average)
-    std = sqrt(variance)
-    return (source[-1]-average)/std if std else 0
-
 class simple_market_maker:
 
     def __init__(self):
