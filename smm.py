@@ -40,16 +40,27 @@ class simple_market_maker:
             # 遅延評価
             delay = ohlcv.distribution_delay.rolling(3).median().values[-1]
 
-            # 指値幅計算
-            spr = min(max(stdev(ohlcv.close,12*3).values[-1],2500),7500)
-            trades = ema(ohlcv.trades,4).values[-1]
-            lot = 0.01 if trades<70 else 0.05
+            # 指値計算
+            dev = stdev(ohlcv.close,12*3).values[-1]
+            spr = min(max(dev,1000),7500)
+            # mid = ohlcv.close.values[-1]
+            mid = tema(ohlcv.close,4).values[-1]
+            # z = zscore(ohlcv.volume_imbalance,300).values[-1]
+            # ofs = z*33
+            ofs = 0
+
+            # ロットサイズ計算
+            lot = maxlot = 0.05
+            lot = round(sma(ohlcv.volume,4).values[-1]*0.01,3)
+            trades = tema(ohlcv.trades,4).values[-1]
+            lot = 0.01 if trades<70 else lot
+            chg = abs(change(ohlcv.close,4).values[-1])
+            lot = 0.01 if chg>2000 else lot
+            lot = min(max(lot,0.01),maxlot)
+
             pairs = [(lot, spr*0.50, '2', 9.5), (lot, spr*0.25, '1', 4.5)]
             maxsize = sum(p[0] for p in pairs)
             buymax = sellmax = deltapos
-            mid = tema(ohlcv.close,4).values[-1]
-            z = zscore(ohlcv.volume_imbalance,300).values[-1]
-            ofs = z*33
 
             if delay>5.0:
                 if deltapos>=0.01:
