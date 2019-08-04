@@ -20,7 +20,7 @@ no_trade_time_range = [
 class simple_market_maker:
 
     def __init__(self):
-        pass
+        self.sfd_detected = False
 
     def loop(self, ohlcv, ticker, strategy, **other):
 
@@ -33,16 +33,22 @@ class simple_market_maker:
                 coffee_break = True
                 break
 
-        deltapos = strategy.position_size+0.00
+        # SFD検出
+        if strategy.sfd.pct100>=5:
+            self.sfd_detected = True
+        elif strategy.sfd.pct100<4.5:
+            self.sfd_detected = False
+
+        deltapos = strategy.position_size
 
         # エントリー
-        if not coffee_break:
+        if not coffee_break and not self.sfd_detected:
             # 遅延評価
             delay = ohlcv.distribution_delay.rolling(3).median().values[-1]
 
             # 指値計算
             dev = stdev(ohlcv.close,12*3).values[-1]
-            spr = min(max(dev,1000),7500)
+            spr = min(max(dev,1100),7500)
             # mid = ohlcv.close.values[-1]
             mid = tema(ohlcv.close,4).values[-1]
             # z = zscore(ohlcv.volume_imbalance,300).values[-1]
@@ -50,7 +56,7 @@ class simple_market_maker:
             ofs = 0
 
             # ロットサイズ計算
-            lot = maxlot = 0.05
+            lot = maxlot = 0.1
             lot = round(sma(ohlcv.volume,4).values[-1]*0.01,3)
             trades = tema(ohlcv.trades,4).values[-1]
             lot = 0.01 if trades<70 else lot
@@ -105,9 +111,9 @@ if __name__ == "__main__":
     logger = logging.getLogger("simple_market_maker")
 
     strategy = Strategy(simple_market_maker().loop, 5)
-    strategy.settings.apiKey = settings.apiKey
-    strategy.settings.secret = settings.secret
+    # strategy.settings.apiKey = settings.apiKey
+    # strategy.settings.secret = settings.secret
     # strategy.settings.max_ohlcv_size = 300
     # strategy.settings.disable_rich_ohlcv = True
-    strategy.risk.max_position_size = 0.1
+    strategy.risk.max_position_size = 0.2
     strategy.start()

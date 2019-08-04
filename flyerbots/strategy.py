@@ -272,6 +272,12 @@ class Strategy:
         self.ep = self.streaming.get_endpoint(self.settings.symbol, ['ticker', 'executions'])
         self.ep.wait_for(['ticker'])
 
+        # SFD計算用に現物価格も購読
+        self.fx_btc = (self.settings.symbol == 'FX_BTC_JPY')
+        if self.fx_btc:
+            self.ep_spot = self.streaming.get_endpoint('BTC/JPY', ['ticker'])
+            self.ep_spot.wait_for(['ticker'])
+
         # ohlcvビルダー作成
         self.ohlcvbuilder = OHLCVBuilder(
             maxlen=self.settings.max_ohlcv_size,
@@ -393,6 +399,13 @@ class Strategy:
                         ohlcv = self.ohlcvbuilder.create_lazy_ohlcv(self.ep.get_executions(chained=False))
                     else:
                         ohlcv = self.ohlcvbuilder.create_boundary_ohlcv(self.ep.get_executions())
+
+                # SFD価格剥離率
+                if self.fx_btc:
+                    ticker_spot = self.ep_spot.get_ticker()
+                    self.sfd = dotdict()
+                    self.sfd.pct = ticker['ltp'] / ticker_spot['ltp']
+                    self.sfd.pct100 = (self.sfd.pct*100)-100
 
                 # 売買ロジック呼び出し
                 if no_needs_err_wait:
