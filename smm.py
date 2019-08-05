@@ -51,17 +51,17 @@ class simple_market_maker:
             spr = min(max(dev,1100),7500)
             # mid = ohlcv.close.values[-1]
             mid = tema(ohlcv.close,4).values[-1]
-            # z = zscore(ohlcv.volume_imbalance,300).values[-1]
-            # ofs = z*33
-            ofs = 0
+            z = zscore(ohlcv.volume_imbalance,300).values[-1]
+            ofs = z*33
+            # ofs = 0
 
             # ロットサイズ計算
             lot = maxlot = 0.1
-            lot = round(sma(ohlcv.volume,4).values[-1]*0.01,3)
+            lot = round(sma(ohlcv.volume,4).values[-1]*0.005,3)
             trades = tema(ohlcv.trades,4).values[-1]
             lot = 0.01 if trades<70 else lot
-            chg = abs(change(ohlcv.close,4).values[-1])
-            lot = 0.01 if chg>2000 else lot
+            # chg = abs(change(ohlcv.close,4).values[-1])
+            # lot = 0.01 if chg>2000 else lot
             lot = min(max(lot,0.01),maxlot)
 
             pairs = [(lot, spr*0.50, '2', 9.5), (lot, spr*0.25, '1', 4.5)]
@@ -111,8 +111,8 @@ if __name__ == "__main__":
     logger = logging.getLogger("simple_market_maker")
 
     strategy = Strategy(simple_market_maker().loop, 5)
-    # strategy.settings.apiKey = settings.apiKey
-    # strategy.settings.secret = settings.secret
+    strategy.settings.apiKey = settings.apiKey
+    strategy.settings.secret = settings.secret
     # strategy.settings.max_ohlcv_size = 300
     # strategy.settings.disable_rich_ohlcv = True
     strategy.risk.max_position_size = 0.2
