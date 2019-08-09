@@ -54,7 +54,6 @@ class Strategy:
 
         # ログ設定
         self.logger = logging.getLogger(__name__)
-        # self.create_rich_ohlcv = stop_watch(self.create_rich_ohlcv)
 
     def fetch_order_book(self, symbol = None):
         """板情報取得"""
@@ -241,15 +240,6 @@ class Strategy:
 
         # 注文
         self.order(myid, side, qty, limit, stop, time_in_force, minute_to_expire, symbol, limit_mask)
-
-    def create_rich_ohlcv(self, ohlcv):
-        if self.settings.disable_rich_ohlcv:
-            rich_ohlcv = dotdict()
-            for k in ohlcv[0].keys():
-                rich_ohlcv[k] = [v[k] for v in ohlcv]
-        else:
-            rich_ohlcv = pd.DataFrame.from_records(ohlcv, index="created_at")
-        return rich_ohlcv
 
     def setup(self):
         # 実行中フラグセット

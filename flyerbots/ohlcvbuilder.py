@@ -85,11 +85,13 @@ class OHLCVBuilder:
         ohlcv.created_at = datetime.utcnow()
         e = executions[-1]
         ohlcv.closed_at = parse_exec_date(e['exec_date'])
-        if e['side']=='SELL':
-            ohlcv.market_order_delay = (ohlcv.closed_at-parse_order_ref_id(e['sell_child_order_acceptance_id'])).total_seconds()
-        elif e['side']=='BUY':
-            ohlcv.market_order_delay = (ohlcv.closed_at-parse_order_ref_id(e['buy_child_order_acceptance_id'])).total_seconds()
-        else:
-            ohlcv.market_order_delay = 0
-        ohlcv.distribution_delay = (ohlcv.created_at - ohlcv.closed_at).total_seconds()
+        # if e['side']=='SELL':
+        #     ohlcv.market_order_delay = (ohlcv.closed_at-parse_order_ref_id(e['sell_child_order_acceptance_id'])).total_seconds()
+        # elif e['side']=='BUY':
+        #     ohlcv.market_order_delay = (ohlcv.closed_at-parse_order_ref_id(e['buy_child_order_acceptance_id'])).total_seconds()
+        # else:
+        #     ohlcv.market_order_delay = 0
+        ohlcv.receved_at = e['receved_at']
+        ohlcv.distribution_delay = (ohlcv.receved_at - ohlcv.closed_at).total_seconds()
+        ohlcv.elapsed_seconds = max((ohlcv.created_at - ohlcv.closed_at).total_seconds(),0)
         return ohlcv

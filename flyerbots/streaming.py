@@ -126,6 +126,8 @@ class Streaming:
                 sleep(5)
 
     def on_data(self,channel,data):
+        if isinstance(data,list):
+            data[-1]['receved_at'] = datetime.utcnow()
         for cb in self.callbacks[channel]:
             cb(channel,data)
 
