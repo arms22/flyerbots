@@ -128,6 +128,7 @@ class Streaming:
     def on_data(self,channel,data):
         if isinstance(data,list):
             data[-1]['receved_at'] = datetime.utcnow()
+            data[-1]['bucket_size'] = len(data)
         for cb in self.callbacks[channel]:
             cb(channel,data)
 

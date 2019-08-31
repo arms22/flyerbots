@@ -44,6 +44,7 @@ class OHLCVBuilder:
                 e = self.last.copy()
                 e['size'] = 0
                 e['side'] = ''
+                e['bucket_size'] = 0
                 executions.append(e)
         if len(executions):
             self.last = executions[-1]
@@ -92,6 +93,7 @@ class OHLCVBuilder:
         # else:
         #     ohlcv.market_order_delay = 0
         ohlcv.receved_at = e['receved_at']
+        ohlcv.bucket_size = e['bucket_size']
         ohlcv.distribution_delay = (ohlcv.receved_at - ohlcv.closed_at).total_seconds()
         ohlcv.elapsed_seconds = max((ohlcv.created_at - ohlcv.closed_at).total_seconds(),0)
         return ohlcv
