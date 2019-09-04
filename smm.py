@@ -36,7 +36,7 @@ class simple_market_maker:
         # SFD検出
         if strategy.sfd.pct100>=5:
             self.sfd_detected = True
-        elif strategy.sfd.pct100<4.5:
+        elif strategy.sfd.pct100<4.8:
             self.sfd_detected = False
 
         deltapos = strategy.position_size
@@ -44,12 +44,16 @@ class simple_market_maker:
         # エントリー
         if not coffee_break and not self.sfd_detected:
             # 遅延評価
-            delay = ohlcv.distribution_delay.rolling(3).median().values[-1]
+            delay = ohlcv.distribution_delay.values[-1]
 
             # 指値計算
             dev = stdev(ohlcv.close,12*3).values[-1]
             spr = min(max(dev,1100),7500)
-            # mid = ohlcv.close.values[-1]
+            # C = ohlcv.close.values[-1]
+            # H = ohlcv.high.values[-1]
+            # L = ohlcv.low.values[-1]
+            # mid = C
+            # mid = (C+C+H+L)/4
             mid = tema(ohlcv.close,4).values[-1]
             z = zscore(ohlcv.volume_imbalance,300).values[-1]
             ofs = z*33
@@ -57,7 +61,7 @@ class simple_market_maker:
 
             # ロットサイズ計算
             lot = maxlot = 0.1
-            lot = round(sma(ohlcv.volume,4).values[-1]*0.005,3)
+            lot = round(sma(ohlcv.volume,4).values[-1]*0.008,3)
             trades = tema(ohlcv.trades,4).values[-1]
             lot = 0.01 if trades<70 else lot
             # chg = abs(change(ohlcv.close,4).values[-1])
