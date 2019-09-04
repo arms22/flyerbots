@@ -373,10 +373,10 @@ class Strategy:
                     f_check, _ = async_result(f_check, None)
 
                     # REST API状態取得
-                    self.api_state, self.api_avg_responce_time, self.api_token = self.exchange.api_state()
+                    self.api_state, self.api_avg_response_time, self.api_token = self.exchange.api_state()
                     if self.api_state is not 'normal':
                         if not self.hft:
-                            self.logger.info("REST API: {0} ({1:.1f}ms)".format(self.api_state, self.api_avg_responce_time*1000))
+                            self.logger.info("REST API: {0} ({1:.1f}ms)".format(self.api_state, self.api_avg_response_time*1000))
 
                 # 価格データ取得
                 ticker, executions, ohlcv = dotdict(self.ep.get_ticker()), None, None

@@ -19,7 +19,7 @@ class Exchange:
         self.apiKey = apiKey
         self.secret = secret
         self.logger = logging.getLogger(__name__)
-        self.responce_times = deque(maxlen=3)
+        self.response_times = deque([0],maxlen=3)
         self.lightning_enabled = False
         self.lightning_collateral = None
         self.order_is_not_accepted = None
@@ -53,23 +53,19 @@ class Exchange:
     def measure_response_time(self, func):
         @wraps(func)
         def wrapper(*args, **kargs):
-            retry = 3
-            while retry > 0:
-                retry = retry - 1
-                try:
-                    start = time()
-                    result = func(*args,**kargs)
-                    responce_time = (time() - start)
-                    self.responce_times.append(responce_time)
-                    return result
-                except ccxt.ExchangeError as e:
-                    if (retry == 0) or ('Connection reset by peer' not in e.args[0]):
-                        raise e
-                sleep(0.3)
+            try:
+                start = time()
+                result = func(*args,**kargs)
+            finally:
+                response_time = (time() - start)
+                self.response_times.append(response_time)
+                # url = args[0]
+                # self.logger.info(f'RESPONSE,{url},{response_time}')
+            return result
         return wrapper
 
     def api_state(self):
-        res_times = list(self.responce_times)
+        res_times = list(self.response_times)
         mean_time = sum(res_times) / len(res_times)
         health = 'super busy'
         if mean_time < 0.2:
@@ -94,7 +90,7 @@ class Exchange:
         self.exchange.throttle = self.get_api_token
 
         # 応答時間計測用にラッパーをかぶせる
-        self.exchange.fetch = self.measure_response_time(self.exchange.fetch)
+        self.exchange.fetch2 = self.measure_response_time(self.exchange.fetch2)
 
         # RestAPIとWebAPI切り換え用
         self.inter_create_order = self.__restapi_create_order
@@ -192,7 +188,20 @@ class Exchange:
             params={'product_code': self.exchange.market_id(symbol)})
 
     def __restapi_cancel_order(self, order):
-        self.exchange.cancel_order(order['id'], order['symbol'])
+        params = {
+            'product_code': self.exchange.market_id(order['symbol'])
+        }
+        info = order.get('info',None)
+        if info is None:
+            params['child_order_acceptance_id'] = order['id']
+        else:
+            child_order_id = info.get('child_order_id',None)
+            if child_order_id is None:
+                params['child_order_acceptance_id'] = order['id']
+            else:
+                params['child_order_id'] = child_order_id
+        self.exchange.private_post_cancelchildorder(params)
+        # self.exchange.cancel_order(order['id'], order['symbol'])
         self.logger.info("CANCEL: {myid} {status} {side} {price} {filled}/{amount} {id}".format(**order))
 
     def __restapi_create_order(self, myid, side, qty, limit, stop, time_in_force, minute_to_expire, symbol):

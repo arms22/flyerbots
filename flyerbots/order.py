@@ -111,7 +111,7 @@ class OrderManager:
                     latest['status'] = o['status']
             if latest['filled'] < o['filled']:
                 latest['filled'] = o['filled']
-            for k in ['id', 'datetime', 'status', 'average_price', 'filled', 'remaining' ,'fee']:
+            for k in ['id', 'datetime', 'status', 'average_price', 'filled', 'remaining' ,'fee', 'info']:
                 o[k] = latest[k]
 
     def cancel_order(self, myid):
