@@ -14,13 +14,14 @@ no_trade_time_range = [
     # (time(13,55), time(14, 5)), # JST 22:55-23:05
     # (time(14,55), time(15, 5)), # JST 23:55-00:05
     # (time(15,55), time(23, 5)), # JST 00:55-08:05
-    (time(18,55), time(19, 55)), # JST 03:55-04:55 Bitflyerメンテナンスタイム
+    # (time(18,50), time.max),    # JST 03:50-09:00
+    (time(18,55), time(19, 55)),# JST 03:55-04:55 Bitflyerメンテナンスタイム
 ]
 
 class simple_market_maker:
 
     def __init__(self):
-        self.sfd_detected = False
+        pass
 
     def loop(self, ohlcv, ticker, strategy, **other):
 
@@ -33,16 +34,11 @@ class simple_market_maker:
                 coffee_break = True
                 break
 
-        # SFD検出
-        if strategy.sfd.pct100>=5:
-            self.sfd_detected = True
-        elif strategy.sfd.pct100<4.8:
-            self.sfd_detected = False
-
+        # デルタポジション
         deltapos = strategy.position_size
 
         # エントリー
-        if not coffee_break and not self.sfd_detected:
+        if not coffee_break and not strategy.sfd.detected:
             # 遅延評価
             delay = ohlcv.distribution_delay.values[-1]
 
@@ -73,14 +69,16 @@ class simple_market_maker:
             buymax = sellmax = deltapos
 
             if delay>5.0:
-                if deltapos>=0.01:
-                    strategy.order('Lc', 'sell', qty=0.01)
-                elif deltapos<=-0.01:
-                    strategy.order('Sc', 'buy', qty=0.01)
+                if deltapos>=0.01 and z<0:
+                    strategy.order('Lc', 'sell', qty=min(deltapos,0.05), limit=int(mid))
+                elif deltapos<=-0.01 and z>0:
+                    strategy.order('Sc', 'buy', qty=min(-deltapos,0.05), limit=int(mid))
                 for _, _,suffix,_ in pairs:
                     strategy.cancel('L'+suffix)
                     strategy.cancel('S'+suffix)
             else:
+                strategy.cancel('Lc')
+                strategy.cancel('Sc')
                 for size, width, suffix, period in pairs:
                     buyid = 'L'+suffix
                     sellid = 'S'+suffix

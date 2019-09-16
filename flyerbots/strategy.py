@@ -46,6 +46,8 @@ class Strategy:
         # その為
         self.settings.show_last_n_orders = 0
         self.settings.safe_order = True
+        self.settings.sfd_detect_pct = 5
+        self.settings.sfd_cancel_pct = 4.8
 
         # リスク設定
         self.risk = dotdict()
@@ -320,6 +322,8 @@ class Strategy:
         errorWait = 0
         f_position = position = f_check = None
         once = True
+        self.sfd = dotdict()
+        self.sfd.detected = False
 
         while True:
             self.interval = self.settings.interval
@@ -393,9 +397,13 @@ class Strategy:
                 # SFD価格剥離率
                 if self.fx_btc:
                     ticker_spot = self.ep_spot.get_ticker()
-                    self.sfd = dotdict()
                     self.sfd.pct = ticker['ltp'] / ticker_spot['ltp']
                     self.sfd.pct100 = (self.sfd.pct*100)-100
+                    # SFD検出
+                    if self.sfd.pct100>=self.settings.sfd_detect_pct:
+                        self.sfd.detected = True
+                    elif self.sfd.pct100<self.settings.sfd_cancel_pct:
+                        self.sfd.detected = False
 
                 # 売買ロジック呼び出し
                 if no_needs_err_wait:
