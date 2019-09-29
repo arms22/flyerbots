@@ -40,7 +40,7 @@ class simple_market_maker:
         # エントリー
         if not coffee_break and not strategy.sfd.detected:
             # 遅延評価
-            delay = ohlcv.distribution_delay.values[-1]
+            # delay = ohlcv.distribution_delay.values[-1]
 
             # 指値計算
             dev = stdev(ohlcv.close,12*3).values[-1]
@@ -55,24 +55,26 @@ class simple_market_maker:
             ofs = z*33
             # ofs = 0
 
+            # 騰落指数
+            chg = change(sma(ohlcv.close,4),4).values[-1]
+
             # ロットサイズ計算
             lot = maxlot = 0.1
             lot = round(sma(ohlcv.volume,4).values[-1]*0.008,3)
             trades = tema(ohlcv.trades,4).values[-1]
             lot = 0.01 if trades<70 else lot
-            # chg = abs(change(ohlcv.close,4).values[-1])
-            # lot = 0.01 if chg>2000 else lot
             lot = min(max(lot,0.01),maxlot)
 
             pairs = [(lot, spr*0.50, '2', 9.5), (lot, spr*0.25, '1', 4.5)]
             maxsize = sum(p[0] for p in pairs)
             buymax = sellmax = deltapos
 
-            if delay>5.0:
+            # if delay>3.0:
+            if abs(chg)>1500:
                 if deltapos>=0.01 and z<0:
-                    strategy.order('Lc', 'sell', qty=min(deltapos,0.05), limit=int(mid))
+                    strategy.order('Lc', 'sell', qty=min(deltapos,maxlot), limit=int(mid))
                 elif deltapos<=-0.01 and z>0:
-                    strategy.order('Sc', 'buy', qty=min(-deltapos,0.05), limit=int(mid))
+                    strategy.order('Sc', 'buy', qty=min(-deltapos,maxlot), limit=int(mid))
                 for _, _,suffix,_ in pairs:
                     strategy.cancel('L'+suffix)
                     strategy.cancel('S'+suffix)
