@@ -58,7 +58,7 @@ class OHLCVBuilder:
             for k in ohlcv[0].keys():
                 rich_ohlcv[k] = [v[k] for v in ohlcv]
         else:
-            rich_ohlcv = pd.DataFrame.from_records(ohlcv, index="closed_at")
+            rich_ohlcv = pd.DataFrame.from_records(ohlcv, index="created_at")
         return rich_ohlcv
 
     def make_ohlcv(self, executions):
