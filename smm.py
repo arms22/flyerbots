@@ -40,18 +40,18 @@ class simple_market_maker:
         # エントリー
         if not coffee_break and not strategy.sfd.detected:
             # 遅延評価
-            # delay = ohlcv.distribution_delay.values[-1]
+            delay = ohlcv.distribution_delay.values[-1]
 
             # 指値計算
             dev = stdev(ohlcv.close,12*3).values[-1]
-            spr = min(max(dev,1100),7500)
-            # C = ohlcv.close.values[-1]
+            spr = min(max(dev,1100),5000)
+            C = ohlcv.close.values[-1]
             # H = ohlcv.high.values[-1]
             # L = ohlcv.low.values[-1]
-            # mid = C
+            mid = C
             # mid = (C+C+H+L)/4
-            mid = tema(ohlcv.close,4).values[-1]
-            z = zscore(ohlcv.volume_imbalance,300).values[-1]
+            # mid = tema(ohlcv.close,4).values[-1]
+            z = zscore(ohlcv.volume_imbalance,600).values[-1]
             ofs = z*33
             # ofs = 0
 
@@ -60,20 +60,19 @@ class simple_market_maker:
 
             # ロットサイズ計算
             lot = maxlot = 0.1
-            lot = round(sma(ohlcv.volume,4).values[-1]*0.008,3)
+            lot = round(sma(ohlcv.volume,4).values[-1]*0.005,3)
             trades = tema(ohlcv.trades,4).values[-1]
             lot = 0.01 if trades<70 else lot
             lot = min(max(lot,0.01),maxlot)
 
-            pairs = [(lot, spr*0.50, '2', 9.5), (lot, spr*0.25, '1', 4.5)]
+            pairs = [(lot, spr*0.30, '2', 9.5), (lot, spr*0.15, '1', 4.5)]
             maxsize = sum(p[0] for p in pairs)
             buymax = sellmax = deltapos
 
-            # if delay>3.0:
-            if abs(chg)>1500:
-                if deltapos>=0.01 and z<0:
+            if abs(chg)>1500 or delay>2.5:
+                if deltapos>=0.01 and chg<-1500:
                     strategy.order('Lc', 'sell', qty=min(deltapos,maxlot), limit=int(mid))
-                elif deltapos<=-0.01 and z>0:
+                elif deltapos<=-0.01 and chg>1500:
                     strategy.order('Sc', 'buy', qty=min(-deltapos,maxlot), limit=int(mid))
                 for _, _,suffix,_ in pairs:
                     strategy.cancel('L'+suffix)
@@ -117,7 +116,6 @@ if __name__ == "__main__":
     strategy = Strategy(simple_market_maker().loop, 5)
     strategy.settings.apiKey = settings.apiKey
     strategy.settings.secret = settings.secret
-    # strategy.settings.max_ohlcv_size = 300
-    # strategy.settings.disable_rich_ohlcv = True
+    strategy.settings.max_ohlcv_size = 600
     strategy.risk.max_position_size = 0.2
     strategy.start()
