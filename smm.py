@@ -40,7 +40,7 @@ class simple_market_maker:
         # エントリー
         if not coffee_break and not strategy.sfd.detected:
             # 遅延評価
-            delay = ohlcv.distribution_delay.values[-1]
+            delay = ohlcv.distribution_delay.rolling(3).median().values[-1]
 
             # 指値計算
             dev = stdev(ohlcv.close,12*3).values[-1]
@@ -56,7 +56,7 @@ class simple_market_maker:
             # ofs = 0
 
             # 騰落指数
-            chg = change(sma(ohlcv.close,4),4).values[-1]
+            chg = change(ohlcv.close,4).values[-1]
 
             # ロットサイズ計算
             lot = maxlot = 0.1
@@ -65,7 +65,7 @@ class simple_market_maker:
             lot = 0.01 if trades<70 else lot
             lot = min(max(lot,0.01),maxlot)
 
-            pairs = [(lot, spr*0.30, '2', 9.5), (lot, spr*0.15, '1', 4.5)]
+            pairs = [(lot, spr*0.50, '2', 9.5), (lot, spr*0.25, '1', 4.5)]
             maxsize = sum(p[0] for p in pairs)
             buymax = sellmax = deltapos
 
