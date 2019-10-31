@@ -5,6 +5,7 @@ from datetime import datetime
 from .utils import dotdict
 from .streaming import parse_exec_date, parse_order_ref_id
 from math import sqrt
+from statistics import mean
 
 class OHLCVBuilder:
 
@@ -65,6 +66,7 @@ class OHLCVBuilder:
         price = [e['price'] for e in executions]
         buy = [e for e in executions if e['side'] == 'BUY']
         sell = [e for e in executions if e['side'] == 'SELL']
+        bucket_size = [e['bucket_size'] for e in executions if 'bucket_size' in e]
         ohlcv = dotdict()
         ohlcv.open = price[0]
         ohlcv.high = max(price)
@@ -93,7 +95,10 @@ class OHLCVBuilder:
         # else:
         #     ohlcv.market_order_delay = 0
         ohlcv.receved_at = e['receved_at']
-        ohlcv.bucket_size = e['bucket_size']
+        ohlcv.bucket_number = len(bucket_size)
+        ohlcv.bucket_size = bucket_size[-1]
+        ohlcv.bucket_size_max = max(bucket_size)
+        ohlcv.bucket_size_avg = mean(bucket_size)
         ohlcv.execution_id = e['id']
         ohlcv.distribution_delay = (ohlcv.receved_at - ohlcv.closed_at).total_seconds()
         ohlcv.elapsed_seconds = max((ohlcv.created_at - ohlcv.closed_at).total_seconds(),0)
