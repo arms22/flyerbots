@@ -340,7 +340,7 @@ class Strategy:
                     wait_sec = (-time() % self.interval) or self.interval
                     sleep(wait_sec)
                 else:
-                    self.ep.wait_any(['executions'], timeout=0.5)
+                    self.ep.wait_any(['executions'])
                 self.monitoring_ep.suspend(True)
 
                 # 例外発生時の待ち
